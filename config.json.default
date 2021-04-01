@@ -1,0 +1,6 @@
+{
+    "bot_token": "YourBotToken",
+    "db_url": "http://TestUser:TestPW@localhost:5984/",
+    "public_channel_name": "ExampleChannel",
+    "bot_name": "ExampleBot"
+}
