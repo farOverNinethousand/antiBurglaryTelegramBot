@@ -20,3 +20,26 @@ def loadJson(path):
     with open(os.path.join(os.getcwd(), path), encoding='utf-8') as infile:
         loadedJson = json.load(infile)
     return loadedJson
+
+class SYMBOLS:
+    BACK = '🔙'
+    CONFIRM = '✅'
+    DENY = '🚫'
+    DENY2 = '❌'
+    THUMBS_UP = '👍'
+    THUMBS_DOWN = '👎'
+    ARROW_RIGHT = '➡'
+    ARROW_UP_RIGHT = '↗'
+    ARROW_DOWN = '⬇'
+    STAR = '⭐'
+    HEART = '❤'
+    BEER = '🍺'
+    BEERS = '🍻'
+    CORONA = '😷'
+    FRIES = '🍟'
+    INFORMATION = 'ℹ'
+    WRENCH = '🔧'
+    WARNING = '⚠'
+    NEWSPAPER = '📰'
+    PLUS = '➕'
+    WHITE_DOWN_POINTING_BACKHAND = '👇'
