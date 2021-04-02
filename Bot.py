@@ -199,6 +199,7 @@ class ABBot:
             ]
             reply_markup = InlineKeyboardMarkup(approvalKeyboard)
             self.updater.bot.send_message(chat_id=userID, reply_markup=reply_markup, text=menuText, parse_mode='HTML')
+        # https://community.thingspeak.com/documentation%20.../api/
         conn = HTTP20Connection('api.thingspeak.com')
         """ Returns List of all stores """
         conn.request("GET", '/channels//fields/2.json?key=&offset=1')
