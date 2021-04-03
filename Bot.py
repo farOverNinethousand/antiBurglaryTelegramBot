@@ -50,6 +50,7 @@ class ABBot:
         """ Init DB """
         self.couchdb = couchdb.Server(self.cfg[Config.DB_URL])
         self.lastAlarmTimestamp = 0
+        self.thingspeak_last_entry_id = -1
         """ Create required DBs """
         if DATABASES.USERS not in self.couchdb:
             self.couchdb.create(DATABASES.USERS)
@@ -201,25 +202,51 @@ class ABBot:
             self.updater.bot.send_message(chat_id=userID, reply_markup=reply_markup, text=menuText, parse_mode='HTML')
         # https://community.thingspeak.com/documentation%20.../api/
         conn = HTTP20Connection('api.thingspeak.com')
-        """ Returns List of all stores """
-        conn.request("GET", '/channels//fields/2.json?key=&offset=1')
+        alarmMessages = ''
+        conn.request("GET", '/channels/' + self.cfg[Config.THINGSPEAK_CHANNEL] + '/feed.json?key=' + self.cfg[Config.THINGSPEAK_READ_APIKEY] + '&offset=1')
         apiResult = loads(conn.get_response().read())
         channelInfo = apiResult['channel']
         sensorResults = apiResult['feeds']
+        last_entry_id = channelInfo['last_entry_id']
+        fieldsAlarmStateMapping = self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING]
+        # E.g. no alarm on first start
+        if self.thingspeak_last_entry_id == -1:
+            logging.info("Not checking for alarm because: First start")
+            self.thingspeak_last_entry_id = last_entry_id
+            return
+        elif last_entry_id == self.thingspeak_last_entry_id:
+            logging.info("Not checking for alarm because: last_entry_id hasn't changed - it still is: " + str(last_entry_id))
+            return
+        # Let's find all fields an their names
+        fieldsNameMapping = {}
+        for key in channelInfo.keys():
+            if key.startswith('field') and key[5:].isdecimal():
+                fieldID = key[5:]
+                fieldsNameMapping[int(fieldID)] = channelInfo[key]
         alarm = False
         alarmDatetime = None
         entry_id = 0
         for feed in sensorResults:
-            if int(feed['field2']) == 0:
-                alarmDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
-                if alarmDatetime.timestamp() > (self.lastAlarmTimestamp + 1 * 60):
-                    alarm = True
-                    entry_id = feed['entry_id']
-        if alarm:
+            # Check all fields
+            lastAlarmFieldName = None
+            for fieldID in fieldsAlarmStateMapping.keys():
+                fieldKey = 'field' + str(fieldID)
+                if fieldKey not in feed:
+                    logging.warning("Failed to find field: " + fieldKey)
+                    continue
+                if int(fieldKey) == fieldsAlarmStateMapping[fieldID]:
+                    alarmDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
+                    if alarmDatetime.timestamp() > (self.lastAlarmTimestamp + 1 * 60):
+                        alarm = True
+                        entry_id = feed['entry_id']
+                        lastAlarmFieldName = fieldsNameMapping[fieldID]
+            if alarm:
+                alarmMessages += '\n' + alarmDatetime.strftime('%d.%m.%Y %H:%M Uhr') + ' | ' + lastAlarmFieldName
+            self.lastAlarmTimestamp = alarmDatetime.timestamp()
+        if len(alarmMessages) > 0:
             approvedUsers = self.getApprovedUsers()
             logging.info("Sending out alarms to " + str(len(approvedUsers)) + " users...")
-            alarmDateFormatted = alarmDatetime.strftime('%d.%m.%Y %H:%M Uhr')
-            text = "<b>Alarm!</b> " + channelInfo['name'] + "  | " + alarmDateFormatted + " | " + str(entry_id)
+            text = "<b>Alarm! " + channelInfo['name'] + "</b>\n" + alarmMessages
             for userID in approvedUsers:
                 userDoc = approvedUsers[userID]
                 if userDoc.get(USERDB.IS_APPROVED, False):
@@ -228,8 +255,6 @@ class ABBot:
                     except BadRequest:
                         # Maybe user has blocked bot
                         pass
-            self.lastAlarmTimestamp = alarmDatetime.timestamp()
-            pass
 
     def getAdmins(self) -> dict:
         admins = {}

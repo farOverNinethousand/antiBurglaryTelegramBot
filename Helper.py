@@ -8,6 +8,9 @@ class Config:
     PUBLIC_CHANNEL_NAME = 'public_channel_name'
     BOT_NAME = 'bot_name'
     BOT_PASSWORD = 'bot_password'
+    THINGSPEAK_CHANNEL = 'thingspeak_channel'
+    THINGSPEAK_READ_APIKEY = 'thingspeak_read_apikey'
+    THINGSPEAK_FIELDS_ALARM_STATE_MAPPING = 'thingspeak_fields_alarm_state_mapping'
 
 def loadConfig(fallback=None):
     try:
