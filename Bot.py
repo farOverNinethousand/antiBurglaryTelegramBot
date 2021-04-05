@@ -123,14 +123,20 @@ class ABBot:
             menuText = 'Hallo ' + update.effective_user.first_name + ', <b>Passwort?</b>\n'
             self.botEditOrSendNewMessage(update, context, menuText)
             return CallbackVars.MENU_ASK_FOR_PASSWORD
-        elif not self.isApprovedUser(update.effective_user.id):
+        # Known user -> Update DB as TG users could change their username and first/last name at any time!
+        userDoc = self.couchdb[DATABASES.USERS][(str(update.effective_user.id))]
+        userDoc[USERDB.FIRST_NAME] = update.effective_user.first_name
+        if update.effective_user.username is not None:
+            userDoc[USERDB.USERNAME] = update.effective_user.username
+        if update.effective_user.last_name is not None:
+            userDoc[USERDB.LAST_NAME] = update.effective_user.last_name
+        if not self.isApprovedUser(update.effective_user.id):
             menuText = 'Warte auf Freischaltung durch einen Admin,\n'
             menuText += '\nDu wirst benachrichtigt, sobald dein Account freigeschaltet wurde.'
             self.botEditOrSendNewMessage(update, context, menuText)
             return CallbackVars.MENU_MAIN
         else:
             menuText = 'Hallo ' + update.effective_user.first_name + ','
-            userDoc = self.couchdb[DATABASES.USERS][(str(update.effective_user.id))]
             if userDoc.get(USERDB.SNOOZE_UNTIL_TIMESTAMP, 0) > datetime.now().timestamp():
                 # https://stackoverflow.com/questions/538666/format-timedelta-to-string
                 secondsRemaining = userDoc[USERDB.SNOOZE_UNTIL_TIMESTAMP] - datetime.now().timestamp()
@@ -183,9 +189,9 @@ class ABBot:
                 USERDB.FIRST_NAME: update.effective_user.first_name
             }
             if update.effective_user.username is not None:
-                USERDB.USERNAME = update.effective_user.username
+                userData[USERDB.USERNAME] = update.effective_user.username
             if update.effective_user.last_name is not None:
-                USERDB.LAST_NAME = update.effective_user.last_name
+                userData[USERDB.LAST_NAME] = update.effective_user.last_name
             text = SYMBOLS.CONFIRM + "Korrektes Passwort!"
             if len(self.couchdb[DATABASES.USERS]) == 0:
                 # First user is admin
@@ -225,7 +231,7 @@ class ABBot:
                 index1 = 0
                 for userID, userDoc in usersToApprove.items():
                     print("Sending notification " + str((index1 + 1)) + " / " + str(len(usersToApprove)))
-                    menuText = 'Benutzer erbittet Freischaltung: ' + self.getFullUsername(userID)
+                    menuText = 'Benutzer erbittet Freischaltung: ' + self.getMeaningfulUserTitle(userID)
                     approvalKeyboard = [
                         [InlineKeyboardButton('Annehmen', callback_data=CallbackVars.APPROVE_USER),
                          InlineKeyboardButton('Ablehnen', callback_data=CallbackVars.DECLINE_USER)]
@@ -325,12 +331,12 @@ class ABBot:
                     # Maybe user has blocked bot
                     pass
 
-    def getFullUsername(self, userID) -> Union[str, None]:
+    def getMeaningfulUserTitle(self, userID) -> Union[str, None]:
         userDoc = self.getUserDoc(userID)
         if userDoc is None:
             return None
         if USERDB.USERNAME in userDoc:
-            fullname = userDoc[USERDB.USERNAME]
+            fullname = "@" + userDoc[USERDB.USERNAME]
         else:
             fullname = str(userID)
         fullname += "|" + userDoc[USERDB.FIRST_NAME]
