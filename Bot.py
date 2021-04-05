@@ -203,7 +203,7 @@ class ABBot:
         # https://community.thingspeak.com/documentation%20.../api/
         conn = HTTP20Connection('api.thingspeak.com')
         alarmMessages = ''
-        conn.request("GET", '/channels/' + self.cfg[Config.THINGSPEAK_CHANNEL] + '/feed.json?key=' + self.cfg[Config.THINGSPEAK_READ_APIKEY] + '&offset=1')
+        conn.request("GET", '/channels/' + str(self.cfg[Config.THINGSPEAK_CHANNEL]) + '/feed.json?key=' + self.cfg[Config.THINGSPEAK_READ_APIKEY] + '&offset=1')
         apiResult = loads(conn.get_response().read())
         channelInfo = apiResult['channel']
         sensorResults = apiResult['feeds']
