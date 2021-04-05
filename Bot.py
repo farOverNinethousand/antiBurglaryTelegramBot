@@ -51,8 +51,10 @@ class ABBot:
             raise Exception('Broken config')
         """ Init DB """
         self.couchdb = couchdb.Server(self.cfg[Config.DB_URL])
-        self.lastAlarmTimestamp = 0
+        self.lastAlarmSentTimestamp = -1
         self.lastEntryID = -1
+        self.lastEntryIDChangeTimestamp = -1
+        self.lastSensorUpdateDatetime = datetime.now()
         """ Create required DBs """
         if DATABASES.USERS not in self.couchdb:
             self.couchdb.create(DATABASES.USERS)
@@ -178,10 +180,12 @@ class ABBot:
         if user_input == self.cfg[Config.BOT_PASSWORD]:
             # Update DB
             userData = {
-                USERDB.USERNAME: update.effective_user.username,
-                USERDB.FIRST_NAME: update.effective_user.first_name,
-                USERDB.LAST_NAME: update.effective_user.last_name
+                USERDB.FIRST_NAME: update.effective_user.first_name
             }
+            if update.effective_user.username is not None:
+                USERDB.USERNAME = update.effective_user.username
+            if update.effective_user.last_name is not None:
+                USERDB.LAST_NAME = update.effective_user.last_name
             text = SYMBOLS.CONFIRM + "Korrektes Passwort!"
             if len(self.couchdb[DATABASES.USERS]) == 0:
                 # First user is admin
@@ -244,6 +248,12 @@ class ABBot:
         if self.lastEntryID == -1:
             logging.info("Not checking for alarm because: First start")
             self.lastEntryID = currentLastEntryID
+            self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
+            return
+        elif currentLastEntryID == self.lastEntryID and (datetime.now().timestamp() - self.lastEntryIDChangeTimestamp) >= 10 * 60:
+            # Check if our alarm system maybe hasn't been responding for a long amount of time
+            text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + self.lastSensorUpdateDatetime.strftime('%d.%m.%Y %H:%M:%S Uhr') + "</b>\n" + alarmMessages
+            self.sendMessageToAllApprovedUnmutedUsers(text)
             return
         elif currentLastEntryID == self.lastEntryID:
             logging.info("Not checking for alarm because: last_entry_id hasn't changed - it still is: " + str(currentLastEntryID) + " --> No new data available")
@@ -263,7 +273,7 @@ class ABBot:
                 fieldsNameMapping[int(fieldIDStr)] = channelInfo[key]
         alarmDatetime = None
         alarmSensorsNames = []
-        alarmSensorsTextStrings = []
+        alarmSensorsDebugTextStrings = []
         entryIDs = []
         for feed in sensorResults:
             # Check all fields for which we got alarm state mapping
@@ -278,36 +288,42 @@ class ABBot:
                     continue
                 currentFieldValue = int(feed[fieldKey])
                 # Check if alarm state is given
+                thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
+                self.lastSensorUpdateDatetime = thisDatetime
                 if currentFieldValue == fieldsAlarmStateMapping[fieldIDStr]:
-                    thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
                     fieldSensorName = fieldsNameMapping[int(fieldIDStr)]
                     # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
-                    if thisDatetime.timestamp() > (self.lastAlarmTimestamp + 1 * 60):
+                    allowToSendAlarm = datetime.now().timestamp() > (self.lastAlarmSentTimestamp + 1 * 60)
+                    if allowToSendAlarm:
                         alarmDatetime = thisDatetime
                         if fieldSensorName not in alarmSensorsNames:
                             alarmSensorsNames.append(fieldSensorName)
-                            alarmSensorsTextStrings.append(fieldSensorName + "(" + fieldKey + ")")
+                            alarmSensorsDebugTextStrings.append(fieldSensorName + "(" + fieldKey + ")")
                         if entryID not in entryIDs:
                             entryIDs.append(entryID)
-                        print("Triggered by entry: " + str(entryID))
                     else:
-                        print("Ignoring alarm (flood protection): " + fieldSensorName)
+                        print("Flood protection: Ignoring alarm of sensor: " + fieldSensorName)
         if len(alarmSensorsNames) > 0:
-            alarmMessages += '\n' + alarmDatetime.strftime('%d.%m.%Y %H:%M Uhr') + ' | Sensoren: ' + ', '.join(alarmSensorsTextStrings)
-            self.lastAlarmTimestamp = alarmDatetime.timestamp()
-        if len(alarmMessages) > 0:
-            approvedUsers = self.getApprovedUsers()
-            logging.info("Sending out alarms to " + str(len(approvedUsers)) + " users...")
-            text = "<b>Alarm! " + channelInfo['name'] + "</b>\n" + alarmMessages
-            for userID in approvedUsers:
-                userDoc = approvedUsers[userID]
-                if userDoc.get(USERDB.IS_APPROVED, False):
-                    try:
-                        self.updater.bot.send_message(chat_id=userID, text=text, parse_mode='HTML')
-                    except BadRequest:
-                        # Maybe user has blocked bot
-                        pass
+            logging.warning("Sending out alarms...")
+            text = "<b>Alarm! " + channelInfo['name'] + "</b>"
+            text += '\n' + alarmDatetime.strftime('%d.%m.%Y %H:%M:%S Uhr') + ' | Sensoren: ' + ', '.join(alarmSensorsNames)
+            # Sending those alarms can take some time thus let's update this timestamp here already
+            self.lastAlarmSentTimestamp = datetime.now().timestamp()
+            self.sendMessageToAllApprovedUnmutedUsers(text)
         self.lastEntryID = currentLastEntryID
+        self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
+
+    def sendMessageToAllApprovedUnmutedUsers(self, text: str):
+        approvedUsers = self.getApprovedUnmutedUsers()
+        logging.info("Sending messages to " + str(len(approvedUsers)) + " users...")
+        for userID in approvedUsers:
+            userDoc = approvedUsers[userID]
+            if userDoc.get(USERDB.IS_APPROVED, False) and userDoc.get(USERDB.SNOOZE_UNTIL_TIMESTAMP, datetime.now().timestamp()) <= datetime.now().timestamp():
+                try:
+                    self.updater.bot.send_message(chat_id=userID, text=text, parse_mode='HTML')
+                except BadRequest:
+                    # Maybe user has blocked bot
+                    pass
 
     def getFullUsername(self, userID) -> Union[str, None]:
         userDoc = self.getUserDoc(userID)
@@ -338,6 +354,16 @@ class ABBot:
         for userID in userDB:
             userDoc = userDB[userID]
             if userDoc.get(USERDB.IS_ADMIN) or userDoc.get(USERDB.IS_APPROVED, False):
+                users[userID] = userDoc
+        return users
+
+    def getApprovedUnmutedUsers(self) -> dict:
+        """ Returns approved users AND admins """
+        users = {}
+        userDB = self.couchdb[DATABASES.USERS]
+        for userID in userDB:
+            userDoc = userDB[userID]
+            if userDoc.get(USERDB.IS_ADMIN) or userDoc.get(USERDB.IS_APPROVED, False) and userDoc.get(USERDB.SNOOZE_UNTIL_TIMESTAMP, datetime.now().timestamp()) <= datetime.now().timestamp():
                 users[userID] = userDoc
         return users
 
