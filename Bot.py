@@ -1,5 +1,6 @@
 import logging
 import time
+import traceback
 from datetime import datetime, timedelta
 from typing import Union
 
@@ -41,9 +42,14 @@ class USERDB:
     FIRST_NAME = 'first_name'
     LAST_NAME = 'last_name'
     IS_APPROVED = 'is_approved'
+    APPROVED_BY = 'approved_by'
     IS_ADMIN = 'is_admin'
     APPROVAL_REQUEST_HAS_BEEN_SENT = 'approval_request_has_been_sent'
     SNOOZE_UNTIL_TIMESTAMP = 'snooze_until_timestamp'
+    TIMESTAMP_REGISTERED = 'timestamp_registered'
+    TIMESTAMP_LAST_SNOOZE = 'timestamp_last_snooze'
+    TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
+    TIMESTAMP_LAST_APPROVAL_REQUEST = 'timestamp_last_approval_request'
 
 
 class ABBot:
@@ -88,21 +94,20 @@ class ABBot:
             name="MainConversationHandler",
         )
         dispatcher.add_handler(conv_handler)
-        # conv_handler2 = ConversationHandler(
-        #     entry_points=[CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.APPROVE_USER + '$')],
-        #     states={
-        #         CallbackVars.APPROVE_USER: [
-        #             CommandHandler('cancel', self.botUserDeleteCancel),
-        #             # Delete users account
-        #             MessageHandler(Filters.text, self.botUserDelete),
-        #         ],
-        #
-        #     },
-        #     fallbacks=[CommandHandler('start', self.botDisplayMenuMain)],
-        #     name="DeleteUserConvHandler",
-        #     allow_reentry=True,
-        # )
-        # dispatcher.add_handler(conv_handler2)
+        conv_handler2 = ConversationHandler(
+            entry_points=[CallbackQueryHandler(self.botApprovalAllow, pattern='^' + CallbackVars.APPROVE_USER + '.+$'), CallbackQueryHandler(self.botApprovalDeny, pattern='^' + CallbackVars.DECLINE_USER + '.+$')],
+            states={
+                CallbackVars.APPROVE_USER: [
+                    CommandHandler('cancel', self.botDisplayMenuMain),
+                    # Delete users account
+                    MessageHandler(Filters.text, self.botDisplayMenuMain),
+                ],
+            },
+            fallbacks=[CommandHandler('start', self.botDisplayMenuMain)],
+            name="UserApprovalHandler",
+            # allow_reentry=True,
+        )
+        dispatcher.add_handler(conv_handler2)
         # dispatcher.add_error_handler(self.botErrorCallback)
 
     def isNewUser(self, userID: int) -> bool:
@@ -112,11 +117,18 @@ class ABBot:
             return True
 
     def isApprovedUser(self, userID: int) -> bool:
-        userDoc = self.couchdb[DATABASES.USERS].get(str(userID))
+        userDoc = self.getUserDoc(userID)
         if userDoc is None or USERDB.IS_APPROVED not in userDoc:
             return False
         else:
             return userDoc[USERDB.IS_APPROVED]
+
+    def isAdmin(self, userID: int) -> bool:
+        userDoc = self.getUserDoc(userID)
+        if userDoc is None or USERDB.IS_ADMIN not in userDoc:
+            return False
+        else:
+            return userDoc[USERDB.IS_ADMIN]
 
     def botDisplayMenuMain(self, update: Update, context: CallbackContext):
         query = update.callback_query
@@ -127,15 +139,17 @@ class ABBot:
             self.botEditOrSendNewMessage(update, context, menuText)
             return CallbackVars.MENU_ASK_FOR_PASSWORD
         # Known user -> Update DB as TG users could change their username and first/last name at any time!
-        userDoc = self.couchdb[DATABASES.USERS][(str(update.effective_user.id))]
+        userDoc = self.getUserDoc(update.effective_user.id)
         userDoc[USERDB.FIRST_NAME] = update.effective_user.first_name
         if update.effective_user.username is not None:
             userDoc[USERDB.USERNAME] = update.effective_user.username
         if update.effective_user.last_name is not None:
             userDoc[USERDB.LAST_NAME] = update.effective_user.last_name
         if not self.isApprovedUser(update.effective_user.id):
-            menuText = 'Warte auf Freischaltung durch einen Admin,\n'
+            menuText = 'Warte auf Freischaltung durch einen Admin.'
             menuText += '\nDu wirst benachrichtigt, sobald dein Account freigeschaltet wurde.'
+            userDoc[USERDB.TIMESTAMP_LAST_APPROVAL_REQUEST] = datetime.now().timestamp()
+            self.couchdb[DATABASES.USERS].save(userDoc)
             self.botEditOrSendNewMessage(update, context, menuText)
             return CallbackVars.MENU_MAIN
         else:
@@ -146,7 +160,7 @@ class ABBot:
                 duration = datetime.utcfromtimestamp(secondsRemaining)
                 # print("Snoozed for seconds:" + str(secondsRemaining) + " | " + duration.strftime("%Hh:%Mm"))
                 # print(timedelta(seconds=secondsRemaining))
-                menuText += '\nBenachrichtigungen sind noch deaktiviert für: ' + duration.strftime("%Hh:%Mm")
+                menuText += '\nBenachrichtigungen für dich sind noch deaktiviert für: ' + duration.strftime("%Hh:%Mm")
                 unmuteKeyboard = [
                     [InlineKeyboardButton('Benachrichtigungen aktivieren', callback_data=CallbackVars.UNMUTE)]]
                 self.botEditOrSendNewMessage(update, context, menuText,
@@ -158,6 +172,8 @@ class ABBot:
                     del userDoc[USERDB.SNOOZE_UNTIL_TIMESTAMP]
                     self.couchdb[DATABASES.USERS].save(userDoc)
                 menuText += '\nHier kannst du Aktivitäten-Benachrichtigungen abschalten:'
+                if self.isAdmin(update.effective_user.id):
+                    menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 snoozeKeyboard = [
                     [InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS_1),
                      InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS_12)],
@@ -175,6 +191,7 @@ class ABBot:
         snoozeUntil = datetime.now().timestamp() + snoozeHours * 60 * 60
         userDoc = self.getUserDoc(update.effective_user.id)
         userDoc[USERDB.SNOOZE_UNTIL_TIMESTAMP] = snoozeUntil
+        userDoc[USERDB.TIMESTAMP_LAST_SNOOZE] = datetime.now().timestamp()
         self.couchdb[DATABASES.USERS].save(userDoc)
         return self.botDisplayMenuMain(update, context)
 
@@ -184,10 +201,52 @@ class ABBot:
         self.couchdb[DATABASES.USERS].save(userDoc)
         return self.botDisplayMenuMain(update, context)
 
+    def botApprovalAllow(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        userIDStr = query.data.replace(CallbackVars.APPROVE_USER, "")
+        userDoc = self.getUserDoc(userIDStr)
+        if userDoc is None or userDoc.get(USERDB.IS_APPROVED, False):
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet")
+        else:
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.CONFIRM + "Benutzer bestätigt: " + self.getMeaningfulUserTitle(userIDStr))
+            userDoc[USERDB.IS_APPROVED] = True
+            userDoc[USERDB.APPROVED_BY] = self.getMeaningfulUserTitle(update.effective_user.id)
+            self.couchdb[DATABASES.USERS].save(userDoc)
+            self.notifyUserApproved(int(userIDStr))
+        return ConversationHandler.END
+
+    def notifyUserApproved(self, userID: int):
+        text = SYMBOLS.CONFIRM + "Du wurdest freigeschaltet!"
+        text += "\nMit /start gelangst du in's Hauptmenü."
+        self.updater.bot.send_message(chat_id=userID, text=text)
+
+    def notifyUserDeny(self, userID: int):
+        self.updater.bot.send_message(chat_id=userID, text=SYMBOLS.DENY + "Du wurdest abgelehnt!")
+
+    def botApprovalDeny(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        userIDStr = query.data.replace(CallbackVars.DECLINE_USER, "")
+        userDoc = self.getUserDoc(userIDStr)
+        if userDoc is None:
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet")
+        else:
+            text = SYMBOLS.DENY + "Benutzer abgelehnt: " + self.getMeaningfulUserTitle(userIDStr)
+            text += "\nVersehentlich abgelehnt? Mit dem Kommando /start kann der Benutzer eine neue anfrage stellen!"
+            self.botEditOrSendNewMessage(update, context, text)
+            del self.couchdb[DATABASES.USERS][userIDStr]
+            self.notifyUserDeny(int(userIDStr))
+        return ConversationHandler.END
+
+
+    def userExistsInDB(self, userID) -> bool:
+        return str(userID) in self.couchdb[DATABASES.USERS]
+
     def botCheckPassword(self, update: Update, context: CallbackContext):
         user_input = update.message.text
         if user_input == self.cfg[Config.BOT_PASSWORD]:
-            # Update DB
+            # User entered correct password -> Add userdata to DB
             userData = {
                 USERDB.FIRST_NAME: update.effective_user.first_name
             }
@@ -195,13 +254,17 @@ class ABBot:
                 userData[USERDB.USERNAME] = update.effective_user.username
             if update.effective_user.last_name is not None:
                 userData[USERDB.LAST_NAME] = update.effective_user.last_name
+            userData[USERDB.TIMESTAMP_REGISTERED] = datetime.now().timestamp()
             text = SYMBOLS.CONFIRM + "Korrektes Passwort!"
             if len(self.couchdb[DATABASES.USERS]) == 0:
                 # First user is admin
                 userData[USERDB.IS_ADMIN] = True
                 userData[USERDB.IS_APPROVED] = True
-                text += "\n<b>Du bist Admin!</b>"
-            self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
+                text += "\n<b>Du bist der erste User -> Admin!</b>"
+                self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
+            else:
+                self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
+                self.sendUserApprovalRequestToAllAdmins(update.effective_user.id)
             context.bot.send_message(chat_id=update.effective_message.chat_id, text=text, parse_mode='HTML')
             return self.botDisplayMenuMain(update, context)
         else:
@@ -218,32 +281,43 @@ class ABBot:
             context.bot.send_message(chat_id=update.effective_message.chat_id, reply_markup=reply_markup, text=text,
                                      parse_mode='HTML')
 
-    def updateNotifications(self):
+    def sendUserApprovalRequests(self):
         usersToApprove = {}
         userDB = self.couchdb[DATABASES.USERS]
         for userID in userDB:
             userDoc = userDB[userID]
             if USERDB.IS_APPROVED not in userDoc and not userDoc.get(USERDB.APPROVAL_REQUEST_HAS_BEEN_SENT, False):
-                usersToApprove[userID] = userDoc#
-        adminUsers = self.getAdmins()
+                usersToApprove[userID] = userDoc
         if len(usersToApprove) > 0:
             logging.info("Sending out approval requests for users: " + str(len(usersToApprove)))
-            index0 = 0
-            for adminUserID in adminUsers:
-                print("Sending approval requests to admin " + str((index0 + 1)) + " / " + str(len(adminUsers)))
-                index1 = 0
-                for userID, userDoc in usersToApprove.items():
-                    print("Sending notification " + str((index1 + 1)) + " / " + str(len(usersToApprove)))
-                    menuText = 'Benutzer erbittet Freischaltung: ' + self.getMeaningfulUserTitle(userID)
-                    approvalKeyboard = [
-                        [InlineKeyboardButton('Annehmen', callback_data=CallbackVars.APPROVE_USER),
-                         InlineKeyboardButton('Ablehnen', callback_data=CallbackVars.DECLINE_USER)]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(approvalKeyboard)
-                    self.updater.bot.send_message(chat_id=adminUserID, reply_markup=reply_markup, text=menuText, parse_mode='HTML')
-                    userDoc[USERDB.APPROVAL_REQUEST_HAS_BEEN_SENT] = True
-                    userDB.save(userDoc)
-                index0 += 1
+            index = 0
+            for userID, userDoc in usersToApprove.items():
+                print("Sending notification " + str((index + 1)) + " / " + str(len(usersToApprove)))
+                self.sendUserApprovalRequestToAllAdmins(userID)
+
+    def sendUserApprovalRequestToAllAdmins(self, userID):
+        adminUsers = self.getAdmins()
+        index = 0
+        userDB = self.couchdb[DATABASES.USERS]
+        userDoc = userDB[str(userID)]
+        menuText = 'Benutzer erbittet Freischaltung: ' + self.getMeaningfulUserTitle(userID)
+        approvalKeyboard = [
+            [InlineKeyboardButton(SYMBOLS.CONFIRM + 'Annehmen', callback_data=CallbackVars.APPROVE_USER + str(userID)),
+             InlineKeyboardButton(SYMBOLS.DENY + 'Ablehnen', callback_data=CallbackVars.DECLINE_USER + str(userID))]
+        ]
+        reply_markup = InlineKeyboardMarkup(approvalKeyboard)
+        for adminUserID in adminUsers:
+            print("Sending approval requests to admin " + str((index + 1)) + " / " + str(len(adminUsers)))
+            try:
+                self.updater.bot.send_message(chat_id=adminUserID, reply_markup=reply_markup, text=menuText, parse_mode='HTML')
+            except BadRequest:
+                # Ignore that
+                logging.info("Failed to send approval request to admin: " + self.getMeaningfulUserTitle(adminUserID))
+            index += 1
+        userDoc[USERDB.APPROVAL_REQUEST_HAS_BEEN_SENT] = True
+        userDB.save(userDoc)
+
+    def updateNotifications(self):
         # https://community.thingspeak.com/documentation%20.../api/
         conn = HTTP20Connection('api.thingspeak.com')
         alarmMessages = ''
@@ -252,7 +326,6 @@ class ABBot:
         channelInfo = apiResult['channel']
         sensorResults = apiResult['feeds']
         currentLastEntryID = channelInfo['last_entry_id']
-        fieldIDsToAlarmStateMapping = self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING]
         # E.g. no alarm on first start - we don't want to send alarms for old events or during testing
         if self.lastEntryID == -1:
             logging.info("Not checking for alarm because: First start")
@@ -274,16 +347,13 @@ class ABBot:
             logging.info("Checking ALL entries")
         else:
             logging.info("Checking all entries > " + str(self.lastEntryID))
-        # Let's find all fields an their names
-        fieldsNameMapping = {}
-        for key in channelInfo.keys():
-            if key.startswith('field') and key[5:].isdecimal():
-                fieldIDStr = key[5:]
-                fieldsNameMapping[int(fieldIDStr)] = channelInfo[key]
         fieldIDToSensorMapping = {}
-        for fieldIDStr, sensorUserConfig in fieldIDsToAlarmStateMapping.items():
-            if 'field' + fieldIDStr in channelInfo:
-                fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(sensorUserConfig['name'], sensorUserConfig['trigger'], sensorUserConfig['operator'])
+        for fieldIDStr, sensorUserConfig in self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING].items():
+            fieldKey = 'field' + fieldIDStr
+            if fieldKey not in channelInfo:
+                logging.info("Detected unconfigured field: " + fieldKey)
+                continue
+            fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(name=channelInfo[fieldKey], triggerValue=sensorUserConfig['trigger'], triggerOperator=sensorUserConfig['operator'])
         alarmDatetime = None
         alarmSensorsNames = []
         alarmSensorsDebugTextStrings = []
@@ -294,28 +364,27 @@ class ABBot:
             if entryID <= self.lastEntryID and checkOnlyHigherEntryIDs:
                 # Ignore entries we've checked before
                 continue
-            for fieldIDStr in fieldIDsToAlarmStateMapping.keys():
-                fieldKey = 'field' + fieldIDStr
+            for fieldID, sensor in fieldIDToSensorMapping.items():
+                fieldKey = 'field' + str(fieldID)
                 if fieldKey not in feed:
-                    logging.warning("Failed to find field: " + fieldKey)
                     continue
-                currentFieldValue = int(feed[fieldKey])
-                # Check if alarm state is given
+                currentFieldValue = float(feed[fieldKey])
+                sensor.setValue(currentFieldValue)
                 thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
                 self.lastSensorUpdateDatetime = thisDatetime
-                if currentFieldValue == fieldIDsToAlarmStateMapping[fieldIDStr]['trigger']:
-                    fieldSensorName = fieldsNameMapping[int(fieldIDStr)]
+                # Check if alarm state is given
+                if sensor.isTriggered():
                     # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
                     allowToSendAlarm = datetime.now().timestamp() > (self.lastAlarmSentTimestamp + 1 * 60)
                     if allowToSendAlarm:
                         alarmDatetime = thisDatetime
-                        if fieldSensorName not in alarmSensorsNames:
-                            alarmSensorsNames.append(fieldSensorName)
-                            alarmSensorsDebugTextStrings.append(fieldSensorName + "(" + fieldKey + ")")
+                        if sensor.getName() not in alarmSensorsNames:
+                            alarmSensorsNames.append(sensor.getName())
+                            alarmSensorsDebugTextStrings.append(sensor.getName() + "(" + fieldKey + ")")
                         if entryID not in entryIDs:
                             entryIDs.append(entryID)
                     else:
-                        print("Flood protection: Ignoring alarm of sensor: " + fieldSensorName)
+                        print("Flood protection: Ignoring alarm of sensor: " + sensor.getName())
         if len(alarmSensorsNames) > 0:
             logging.warning("Sending out alarms...")
             text = "<b>Alarm! " + channelInfo['name'] + "</b>"
@@ -383,11 +452,18 @@ class ABBot:
     def getUserDoc(self, userID):
         return self.couchdb[DATABASES.USERS].get(str(userID))
 
+    def handleBatchProcess(self):
+        try:
+            self.updateNotifications()
+        except:
+            traceback.print_exc()
+            logging.warning("Batchprocess failed")
+
 
 if __name__ == '__main__':
     bot = ABBot()
     bot.updater.start_polling()
-    schedule.every(5).seconds.do(bot.updateNotifications)
+    schedule.every(5).seconds.do(bot.handleBatchProcess)
     while True:
         schedule.run_pending()
         time.sleep(1)
