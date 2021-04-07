@@ -7,7 +7,15 @@
   "thingspeak_channel": 123456,
   "thingspeak_read_apikey": "BLA",
   "thingspeak_fields_alarm_state_mapping": {
-    "1": 1,
-    "2": 0
+    "1": {
+      "name": "Door",
+      "trigger": 1,
+      "operator": "EQ"
+    },
+    "2": {
+      "name": "Movement",
+      "trigger": 0,
+      "operator": "EQ"
+    }
   }
 }

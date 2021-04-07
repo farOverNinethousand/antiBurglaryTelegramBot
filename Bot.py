@@ -13,6 +13,9 @@ from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackC
 from Helper import Config, loadConfig, SYMBOLS
 from hyper import HTTP20Connection  # we're using hyper instead of requests because of its' HTTP/2.0 capability
 from json import loads
+
+from Sensor import Sensor
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 
@@ -249,7 +252,7 @@ class ABBot:
         channelInfo = apiResult['channel']
         sensorResults = apiResult['feeds']
         currentLastEntryID = channelInfo['last_entry_id']
-        fieldsAlarmStateMapping = self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING]
+        fieldIDsToAlarmStateMapping = self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING]
         # E.g. no alarm on first start - we don't want to send alarms for old events or during testing
         if self.lastEntryID == -1:
             logging.info("Not checking for alarm because: First start")
@@ -277,6 +280,10 @@ class ABBot:
             if key.startswith('field') and key[5:].isdecimal():
                 fieldIDStr = key[5:]
                 fieldsNameMapping[int(fieldIDStr)] = channelInfo[key]
+        fieldIDToSensorMapping = {}
+        for fieldIDStr, sensorUserConfig in fieldIDsToAlarmStateMapping.items():
+            if 'field' + fieldIDStr in channelInfo:
+                fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(sensorUserConfig['name'], sensorUserConfig['trigger'], sensorUserConfig['operator'])
         alarmDatetime = None
         alarmSensorsNames = []
         alarmSensorsDebugTextStrings = []
@@ -287,7 +294,7 @@ class ABBot:
             if entryID <= self.lastEntryID and checkOnlyHigherEntryIDs:
                 # Ignore entries we've checked before
                 continue
-            for fieldIDStr in fieldsAlarmStateMapping.keys():
+            for fieldIDStr in fieldIDsToAlarmStateMapping.keys():
                 fieldKey = 'field' + fieldIDStr
                 if fieldKey not in feed:
                     logging.warning("Failed to find field: " + fieldKey)
@@ -296,7 +303,7 @@ class ABBot:
                 # Check if alarm state is given
                 thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
                 self.lastSensorUpdateDatetime = thisDatetime
-                if currentFieldValue == fieldsAlarmStateMapping[fieldIDStr]:
+                if currentFieldValue == fieldIDsToAlarmStateMapping[fieldIDStr]['trigger']:
                     fieldSensorName = fieldsNameMapping[int(fieldIDStr)]
                     # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
                     allowToSendAlarm = datetime.now().timestamp() > (self.lastAlarmSentTimestamp + 1 * 60)
