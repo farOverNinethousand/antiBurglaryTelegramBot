@@ -88,16 +88,16 @@ class ABBot:
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', self.botDisplayMenuMain)],
             states={
+                CallbackVars.MENU_ASK_FOR_PASSWORD: [
+                    CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
+                    MessageHandler(Filters.text, self.botCheckPassword),
+                ],
                 CallbackVars.MENU_MAIN: [
                     # Main menu
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
                     CallbackQueryHandler(self.botUnsnooze, pattern='^' + CallbackVars.UNMUTE + '$'),
                     CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS + '\\d+$'),
                     CallbackQueryHandler(self.botDisplayAdminControlPanel, pattern='^' + CallbackVars.MENU_ACP + '$'),
-                ],
-                CallbackVars.MENU_ASK_FOR_PASSWORD: [
-                    CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
-                    MessageHandler(Filters.text, self.botCheckPassword),
                 ],
                 CallbackVars.MENU_ACP: [
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
