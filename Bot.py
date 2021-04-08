@@ -11,7 +11,7 @@ from telegram.error import BadRequest
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
 
-from Helper import Config, loadConfig, SYMBOLS
+from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatDatetimeToGermanDate, formatTimestampToGermanDateWithSeconds, formatTimestampToGermanDate
 from hyper import HTTP20Connection  # we're using hyper instead of requests because of its' HTTP/2.0 capability
 from json import loads
 
@@ -23,6 +23,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 class CallbackVars:
     MENU_MAIN = 'MENU_MAIN'
     MENU_ASK_FOR_PASSWORD = 'MENU_ASK_FOR_PASSWORD'
+    MUTE_HOURS = 'MUTE_HOURS_'
     MUTE_HOURS_1 = 'MUTE_HOURS_1'
     MUTE_HOURS_12 = 'MUTE_HOURS_12'
     MUTE_HOURS_24 = 'MUTE_HOURS_24'
@@ -31,10 +32,14 @@ class CallbackVars:
     MUTE_SELECTION = 'MUTE_SELECTION'
     APPROVE_USER = 'APPROVE_USER'
     DECLINE_USER = 'DECLINE_USER'
+    MENU_ACP = 'MENU_ACP'
+    MENU_ACP_TRIGGER_ADMIN = 'MENU_ACP_TRIGGER_ADMIN'
+    MENU_ACP_DELETE_USER = 'MENU_ACP_DELETE_USER'
 
 
 class DATABASES:
     USERS = 'users'
+    BOTSTATE = 'botstate'
 
 
 class USERDB:
@@ -45,11 +50,16 @@ class USERDB:
     APPROVED_BY = 'approved_by'
     IS_ADMIN = 'is_admin'
     APPROVAL_REQUEST_HAS_BEEN_SENT = 'approval_request_has_been_sent'
-    SNOOZE_UNTIL_TIMESTAMP = 'snooze_until_timestamp'
+    TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     TIMESTAMP_REGISTERED = 'timestamp_registered'
     TIMESTAMP_LAST_SNOOZE = 'timestamp_last_snooze'
     TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
     TIMESTAMP_LAST_APPROVAL_REQUEST = 'timestamp_last_approval_request'
+
+
+class BOTDB:
+    TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
+    MUTED_BY_USER_ID = 'muted_by'
 
 
 class ABBot:
@@ -67,6 +77,10 @@ class ABBot:
         """ Create required DBs """
         if DATABASES.USERS not in self.couchdb:
             self.couchdb.create(DATABASES.USERS)
+        if DATABASES.BOTSTATE not in self.couchdb:
+            self.couchdb.create(DATABASES.BOTSTATE)
+            # Store everything in one doc
+            self.couchdb[DATABASES.BOTSTATE][DATABASES.BOTSTATE] = {}
 
         self.updater = Updater(self.cfg[Config.BOT_TOKEN], request_kwargs={"read_timeout": 30})
         dispatcher = self.updater.dispatcher
@@ -78,16 +92,17 @@ class ABBot:
                     # Main menu
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
                     CallbackQueryHandler(self.botUnsnooze, pattern='^' + CallbackVars.UNMUTE + '$'),
+                    CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS + '\\d+$'),
+                    CallbackQueryHandler(self.botDisplayAdminControlPanel, pattern='^' + CallbackVars.MENU_ACP + '$'),
                 ],
                 CallbackVars.MENU_ASK_FOR_PASSWORD: [
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
                     MessageHandler(Filters.text, self.botCheckPassword),
                 ],
-                CallbackVars.MUTE_SELECTION: [
-                    CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS_1 + '$'),
-                    CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS_12 + '$'),
-                    CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS_24 + '$'),
-                    CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS_48 + '$'),
+                CallbackVars.MENU_ACP: [
+                    CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
+                    CallbackQueryHandler(self.botUserTriggerAdmin, pattern='^' + CallbackVars.MENU_ACP_TRIGGER_ADMIN + '.+$'),
+                    CallbackQueryHandler(self.botUserDelete, pattern='^' + CallbackVars.MENU_ACP_DELETE_USER + '.+$'),
                 ]
             },
             fallbacks=[CommandHandler('start', self.botDisplayMenuMain)],
@@ -95,7 +110,8 @@ class ABBot:
         )
         dispatcher.add_handler(conv_handler)
         conv_handler2 = ConversationHandler(
-            entry_points=[CallbackQueryHandler(self.botApprovalAllow, pattern='^' + CallbackVars.APPROVE_USER + '.+$'), CallbackQueryHandler(self.botApprovalDeny, pattern='^' + CallbackVars.DECLINE_USER + '.+$')],
+            entry_points=[CallbackQueryHandler(self.botApprovalAllow, pattern='^' + CallbackVars.APPROVE_USER + '.+$'),
+                          CallbackQueryHandler(self.botApprovalDeny, pattern='^' + CallbackVars.DECLINE_USER + '.+$')],
             states={
                 CallbackVars.APPROVE_USER: [
                     CommandHandler('cancel', self.botDisplayMenuMain),
@@ -154,51 +170,91 @@ class ABBot:
             return CallbackVars.MENU_MAIN
         else:
             menuText = 'Hallo ' + update.effective_user.first_name + ','
-            if userDoc.get(USERDB.SNOOZE_UNTIL_TIMESTAMP, 0) > datetime.now().timestamp():
-                # https://stackoverflow.com/questions/538666/format-timedelta-to-string
-                secondsRemaining = userDoc[USERDB.SNOOZE_UNTIL_TIMESTAMP] - datetime.now().timestamp()
-                duration = datetime.utcfromtimestamp(secondsRemaining)
-                # print("Snoozed for seconds:" + str(secondsRemaining) + " | " + duration.strftime("%Hh:%Mm"))
-                # print(timedelta(seconds=secondsRemaining))
-                menuText += '\nBenachrichtigungen für dich sind noch deaktiviert für: ' + duration.strftime("%Hh:%Mm")
-                unmuteKeyboard = [
-                    [InlineKeyboardButton('Benachrichtigungen aktivieren', callback_data=CallbackVars.UNMUTE)]]
-                self.botEditOrSendNewMessage(update, context, menuText,
-                                             reply_markup=InlineKeyboardMarkup(unmuteKeyboard))
-                return CallbackVars.MENU_MAIN
+            mainMenuKeyboard = []
+            if self.getCurrentGlobalSnoozeTimestamp() > datetime.now().timestamp():
+                menuText += '\n' + SYMBOLS.WARNING + 'Benachrichtigungen deaktiviert bis: ' + formatTimestampToGermanDate(
+                    self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')'
+                menuText += '\nVon: ' + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID())
+                mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
                 # Cleanup DB
-                if USERDB.SNOOZE_UNTIL_TIMESTAMP in userDoc:
-                    del userDoc[USERDB.SNOOZE_UNTIL_TIMESTAMP]
+                if USERDB.TIMESTAMP_SNOOZE_UNTIL in userDoc:
+                    del userDoc[USERDB.TIMESTAMP_SNOOZE_UNTIL]
                     self.couchdb[DATABASES.USERS].save(userDoc)
-                menuText += '\nHier kannst du Aktivitäten-Benachrichtigungen abschalten:'
-                if self.isAdmin(update.effective_user.id):
-                    menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
-                snoozeKeyboard = [
-                    [InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS_1),
-                     InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS_12)],
-                    [InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS_24),
-                     InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS_48)]
-                ]
-                self.botEditOrSendNewMessage(update, context, menuText,
-                                             reply_markup=InlineKeyboardMarkup(snoozeKeyboard))
-            return CallbackVars.MUTE_SELECTION
+                menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen abschalten.'
+                mainMenuKeyboard.append([InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS_1),
+                                         InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS_12)])
+                mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS_24),
+                                         InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS_48)])
+            if self.isAdmin(update.effective_user.id):
+                menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
+                menuText += '\nMissbrauche deine Macht nicht!'
+                mainMenuKeyboard.append([InlineKeyboardButton('ACP', callback_data=CallbackVars.MENU_ACP)])
+            self.botEditOrSendNewMessage(update, context, menuText,
+                                         reply_markup=InlineKeyboardMarkup(mainMenuKeyboard))
+        return CallbackVars.MENU_MAIN
+
+    def botDisplayAdminControlPanel(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        if query is not None:
+            query.answer()
+        users = self.getApprovedUsersExceptOne(str(update.effective_user.id))
+        acpKeyboard = []
+        for userIDStr in users:
+            userDoc = users[userIDStr]
+            userPrefix = ''
+            if self.isAdmin(userIDStr):
+                userPrefix = SYMBOLS.STAR
+            if USERDB.USERNAME in userDoc:
+                acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), url="https://t.me/" + userDoc[USERDB.USERNAME])])
+            else:
+                acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_MAIN)])
+            userOptions = []
+            if self.isAdmin(userIDStr):
+                userOptions.append(InlineKeyboardButton(SYMBOLS.DENY + 'Admin entfernen', callback_data=CallbackVars.MENU_ACP_TRIGGER_ADMIN + userIDStr))
+            else:
+                userOptions.append(InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_TRIGGER_ADMIN + userIDStr))
+            userOptions.append(InlineKeyboardButton(SYMBOLS.DENY + 'Löschen ', callback_data=CallbackVars.MENU_ACP_DELETE_USER + userIDStr))
+            acpKeyboard.append(userOptions)
+        acpKeyboard.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück ', callback_data=CallbackVars.MENU_MAIN)])
+        menuText = "Benutzer werden nicht über Änderungen informiert!"
+        menuText += SYMBOLS.WARNING + "\n<b>Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!</b>"
+        self.botEditOrSendNewMessage(update, context, menuText,
+                                     reply_markup=InlineKeyboardMarkup(acpKeyboard))
+        return CallbackVars.MENU_ACP
 
     def botSnooze(self, update: Update, context: CallbackContext):
         query = update.callback_query
         # query.answer()
-        snoozeHours = int(query.data.replace("MUTE_HOURS_", ""))
-        snoozeUntil = datetime.now().timestamp() + snoozeHours * 60 * 60
-        userDoc = self.getUserDoc(update.effective_user.id)
-        userDoc[USERDB.SNOOZE_UNTIL_TIMESTAMP] = snoozeUntil
-        userDoc[USERDB.TIMESTAMP_LAST_SNOOZE] = datetime.now().timestamp()
-        self.couchdb[DATABASES.USERS].save(userDoc)
+        if self.getCurrentGlobalSnoozeTimestamp() < datetime.now().timestamp():
+            snoozeHours = int(query.data.replace(CallbackVars.MUTE_HOURS, ""))
+            snoozeUntil = datetime.now().timestamp() + snoozeHours * 60 * 60
+            # Save user state
+            userDoc = self.getUserDoc(update.effective_user.id)
+            userDoc[USERDB.TIMESTAMP_SNOOZE_UNTIL] = snoozeUntil
+            userDoc[USERDB.TIMESTAMP_LAST_SNOOZE] = datetime.now().timestamp()
+            self.couchdb[DATABASES.USERS].save(userDoc)
+            # Save global state
+            botDoc = self.couchdb[DATABASES.BOTSTATE][DATABASES.BOTSTATE]
+            botDoc[BOTDB.TIMESTAMP_SNOOZE_UNTIL] = snoozeUntil
+            botDoc[BOTDB.MUTED_BY_USER_ID] = update.effective_user.id
+            self.couchdb[DATABASES.BOTSTATE].save(botDoc)
+            text = SYMBOLS.WARNING + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID()) + " hat Benachrichtigungen deaktiviert bis: " + formatTimestampToGermanDate(
+                self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')!'
+            text += '\nMit /start siehst du den aktuellen Stand.'
+            self.sendMessageToMultipleUsers(self.getApprovedUsersExceptOne(str(update.effective_user.id)), text)
+        else:
+            logging.info("User attempted snooze but snooze is already active: " + str(update.effective_user.id))
         return self.botDisplayMenuMain(update, context)
 
     def botUnsnooze(self, update: Update, context: CallbackContext):
-        userDoc = self.getUserDoc(update.effective_user.id)
-        del userDoc[USERDB.SNOOZE_UNTIL_TIMESTAMP]
-        self.couchdb[DATABASES.USERS].save(userDoc)
+        # Save global state
+        botDoc = self.getBotDoc()
+        if BOTDB.TIMESTAMP_SNOOZE_UNTIL in botDoc:
+            del botDoc[BOTDB.TIMESTAMP_SNOOZE_UNTIL]
+        if BOTDB.MUTED_BY_USER_ID in botDoc:
+            del botDoc[BOTDB.MUTED_BY_USER_ID]
+        self.couchdb[DATABASES.BOTSTATE].save(botDoc)
         return self.botDisplayMenuMain(update, context)
 
     def botApprovalAllow(self, update: Update, context: CallbackContext):
@@ -238,7 +294,6 @@ class ABBot:
             del self.couchdb[DATABASES.USERS][userIDStr]
             self.notifyUserDeny(int(userIDStr))
         return ConversationHandler.END
-
 
     def userExistsInDB(self, userID) -> bool:
         return str(userID) in self.couchdb[DATABASES.USERS]
@@ -334,8 +389,9 @@ class ABBot:
             return
         elif currentLastEntryID == self.lastEntryID and (datetime.now().timestamp() - self.lastEntryIDChangeTimestamp) >= 10 * 60:
             # Check if our alarm system maybe hasn't been responding for a long amount of time
-            text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + self.lastSensorUpdateDatetime.strftime('%d.%m.%Y %H:%M:%S Uhr') + "</b>\n" + alarmMessages
-            self.sendMessageToAllApprovedUnmutedUsers(text)
+            text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + formatDatetimeToGermanDate(
+                self.lastSensorUpdateDatetime) + "</b>\n" + alarmMessages
+            self.sendMessageToAllApprovedUsers(text)
             return
         elif currentLastEntryID == self.lastEntryID:
             logging.info("Not checking for alarm because: last_entry_id hasn't changed - it still is: " + str(currentLastEntryID) + " --> No new data available")
@@ -385,39 +441,52 @@ class ABBot:
                             entryIDs.append(entryID)
                     else:
                         print("Flood protection: Ignoring alarm of sensor: " + sensor.getName())
-        if len(alarmSensorsNames) > 0:
+        if len(alarmSensorsNames) > 0 and not self.isGloballySnoozed():
             logging.warning("Sending out alarms...")
             text = "<b>Alarm! " + channelInfo['name'] + "</b>"
-            text += '\n' + alarmDatetime.strftime('%d.%m.%Y %H:%M:%S Uhr') + ' | Sensoren: ' + ', '.join(alarmSensorsNames)
+            text += '\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames)
             # Sending those alarms can take some time thus let's update this timestamp here already
             self.lastAlarmSentTimestamp = datetime.now().timestamp()
-            self.sendMessageToAllApprovedUnmutedUsers(text)
+            self.sendMessageToAllApprovedUsers(text)
         self.lastEntryID = currentLastEntryID
         self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
 
-    def sendMessageToAllApprovedUnmutedUsers(self, text: str):
-        approvedUsers = self.getApprovedUnmutedUsers()
-        logging.info("Sending messages to " + str(len(approvedUsers)) + " users...")
-        for userID in approvedUsers:
-            userDoc = approvedUsers[userID]
-            if userDoc.get(USERDB.IS_APPROVED, False) and userDoc.get(USERDB.SNOOZE_UNTIL_TIMESTAMP, datetime.now().timestamp()) <= datetime.now().timestamp():
-                try:
-                    self.updater.bot.send_message(chat_id=userID, text=text, parse_mode='HTML')
-                except BadRequest:
-                    # Maybe user has blocked bot
-                    pass
+    def getCurrentGlobalSnoozeTimestamp(self) -> float:
+        return self.getBotDoc().get(BOTDB.TIMESTAMP_SNOOZE_UNTIL, 0)
 
-    def getMeaningfulUserTitle(self, userID) -> Union[str, None]:
+    def getCurrentGlobalSnoozeUserID(self):
+        """ Returns ID of user who activated last snooze. """
+        return self.getBotDoc().get(BOTDB.MUTED_BY_USER_ID, "WTF")
+
+    def isGloballySnoozed(self):
+        return self.getCurrentGlobalSnoozeTimestamp() > datetime.now().timestamp()
+
+    def sendMessageToAllApprovedUsers(self, text: str):
+        approvedUsers = self.getApprovedUsers()
+        self.sendMessageToMultipleUsers(approvedUsers, text)
+
+    def sendMessageToMultipleUsers(self, users: dict, text: str):
+        logging.info("Sending messages to " + str(len(users)) + " users...")
+        for userID in users:
+            userDoc = users[userID]
+            try:
+                self.updater.bot.send_message(chat_id=userID, text=text, parse_mode='HTML')
+            except BadRequest:
+                # Maybe user has blocked bot
+                pass
+
+    def getMeaningfulUserTitle(self, userID) -> str:
         userDoc = self.getUserDoc(userID)
         if userDoc is None:
-            return None
+            return "WTF Unbekannter Benutzer"
         if USERDB.USERNAME in userDoc:
             fullname = "@" + userDoc[USERDB.USERNAME]
         else:
             fullname = str(userID)
-        fullname += "|" + userDoc[USERDB.FIRST_NAME]
+        fullname += " (" + userDoc[USERDB.FIRST_NAME]
         if USERDB.LAST_NAME in userDoc:
-            fullname += "|" + userDoc[USERDB.LAST_NAME]
+            fullname += " " + userDoc[USERDB.LAST_NAME]
+        fullname += ")"
         return fullname
 
     def getAdmins(self) -> dict:
@@ -439,18 +508,62 @@ class ABBot:
                 users[userID] = userDoc
         return users
 
-    def getApprovedUnmutedUsers(self) -> dict:
+    def getApprovedUsersExceptOne(self, ignoreUserID: str) -> dict:
         """ Returns approved users AND admins """
         users = {}
         userDB = self.couchdb[DATABASES.USERS]
         for userID in userDB:
+            if userID == ignoreUserID:
+                continue
             userDoc = userDB[userID]
-            if userDoc.get(USERDB.IS_ADMIN) or userDoc.get(USERDB.IS_APPROVED, False) and userDoc.get(USERDB.SNOOZE_UNTIL_TIMESTAMP, datetime.now().timestamp()) <= datetime.now().timestamp():
+            if userDoc.get(USERDB.IS_ADMIN) or userDoc.get(USERDB.IS_APPROVED, False):
                 users[userID] = userDoc
         return users
 
+    def botUserTriggerAdmin(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        userIDStr = query.data.replace(CallbackVars.MENU_ACP_TRIGGER_ADMIN, "")
+        self.userTriggerAdmin(userIDStr)
+        return self.botDisplayAdminControlPanel(update, context)
+
+    def userTriggerAdmin(self, userIDStr):
+        userDoc = self.getUserDoc(userIDStr)
+        if userDoc is None:
+            return
+        elif userDoc.get(USERDB.IS_ADMIN, False):
+            userDoc[USERDB.IS_ADMIN] = False
+            self.couchdb[DATABASES.USERS].save(userDoc)
+        else:
+            userDoc[USERDB.IS_ADMIN] = True
+            self.couchdb[DATABASES.USERS].save(userDoc)
+
+    def botUserDelete(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        userIDStr = query.data.replace(CallbackVars.MENU_ACP_DELETE_USER, "")
+        self.userDelete(userIDStr)
+        return self.botDisplayAdminControlPanel(update, context)
+
+    def userDelete(self, userIDStr):
+        """ Deletes user from DB. """
+        if userIDStr in self.couchdb[DATABASES.USERS]:
+            del self.couchdb[DATABASES.USERS][userIDStr]
+
+
+    # def getApprovedUnmutedUsers(self) -> dict:
+    #     """ Returns approved users AND admins """
+    #     users = {}
+    #     userDB = self.couchdb[DATABASES.USERS]
+    #     for userID in userDB:
+    #         userDoc = userDB[userID]
+    #         if userDoc.get(USERDB.IS_ADMIN) or userDoc.get(USERDB.IS_APPROVED, False) and userDoc.get(USERDB.TIMESTAMP_SNOOZE_UNTIL, datetime.now().timestamp()) <= datetime.now().timestamp():
+    #             users[userID] = userDoc
+    #     return users
+
     def getUserDoc(self, userID):
         return self.couchdb[DATABASES.USERS].get(str(userID))
+
+    def getBotDoc(self):
+        return self.couchdb[DATABASES.BOTSTATE][DATABASES.BOTSTATE]
 
     def handleBatchProcess(self):
         try:

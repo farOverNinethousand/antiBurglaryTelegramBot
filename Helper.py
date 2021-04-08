@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 
 
 class Config:
@@ -46,3 +47,21 @@ class SYMBOLS:
     NEWSPAPER = '📰'
     PLUS = '➕'
     WHITE_DOWN_POINTING_BACKHAND = '👇'
+
+
+def getFormattedTimeDelta(futureTimestamp: float) -> str:
+    """ Returns human readable duration until given future timestamp is reached """
+    # https://stackoverflow.com/questions/538666/format-timedelta-to-string
+    secondsRemaining = futureTimestamp - datetime.now().timestamp()
+    duration = datetime.utcfromtimestamp(secondsRemaining)
+    return duration.strftime("%Hh:%Mm")
+
+
+def formatTimestampToGermanDateWithSeconds(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp).strftime('%d.%m.%Y %H:%M:%S Uhr')
+
+def formatTimestampToGermanDate(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp).strftime('%d.%m.%Y %H:%M Uhr')
+
+def formatDatetimeToGermanDate(date: datetime) -> str:
+    return date.strftime('%d.%m.%Y %H:%M:%S Uhr')
