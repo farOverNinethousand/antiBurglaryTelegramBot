@@ -552,7 +552,7 @@ class ABBot:
     def getMeaningfulUserTitle(self, userID) -> str:
         userDoc = self.getUserDoc(userID)
         if userDoc is None:
-            return "WTF Unbekannter Benutzer"
+            return "Gelöschter Benutzer"
         if USERDB.USERNAME in userDoc:
             fullname = "@" + userDoc[USERDB.USERNAME]
         else:
