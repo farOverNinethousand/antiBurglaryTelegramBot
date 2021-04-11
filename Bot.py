@@ -386,9 +386,11 @@ class ABBot:
             if len(self.couchdb[DATABASES.USERS]) == 0:
                 # First user is admin
                 userData[USERDB.IS_ADMIN] = True
-                userData[USERDB.IS_APPROVED] = True
-                text += "\n<b>Du bist der erste User -> Admin!</b>"
+                # Update DB
                 self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
+                # Small "workaround" as first user is basically approved by itself!
+                self.approveUser(str(update.effective_user.id), str(update.effective_user.id))
+                text += "\n<b>Du bist der erste User -> Admin!</b>"
             else:
                 self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
                 self.sendUserApprovalRequestToAllAdmins(update.effective_user.id)
