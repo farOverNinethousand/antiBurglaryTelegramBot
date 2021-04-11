@@ -11,7 +11,7 @@ from telegram.error import BadRequest
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
 
-from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatDatetimeToGermanDate, formatTimestampToGermanDateWithSeconds, formatTimestampToGermanDate
+from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatDatetimeToGermanDate, formatTimestampToGermanDateWithSeconds, formatTimestampToGermanDate, BotException
 from hyper import HTTP20Connection  # we're using hyper instead of requests because of its' HTTP/2.0 capability
 from json import loads
 
@@ -23,6 +23,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 class CallbackVars:
     MENU_MAIN = 'MENU_MAIN'
     MENU_ASK_FOR_PASSWORD = 'MENU_ASK_FOR_PASSWORD'
+    APPROVE_USER = 'APPROVE_USER'
+    DECLINE_USER = 'DECLINE_USER'
     MUTE_HOURS = 'MUTE_HOURS_'
     MUTE_HOURS_1 = 'MUTE_HOURS_1'
     MUTE_HOURS_12 = 'MUTE_HOURS_12'
@@ -30,9 +32,9 @@ class CallbackVars:
     MUTE_HOURS_48 = 'MUTE_HOURS_48'
     UNMUTE = 'UNMUTE'
     MUTE_SELECTION = 'MUTE_SELECTION'
-    APPROVE_USER = 'APPROVE_USER'
-    DECLINE_USER = 'DECLINE_USER'
     MENU_ACP = 'MENU_ACP'
+    MENU_ACP_APPROVE_USER = 'MENU_ACP_APPROVE_USER'
+    MENU_ACP_DECLINE_USER = 'MENU_ACP_DECLINE_USER'
     MENU_ACP_ACTIONS = 'MENU_ACP_ACTIONS'
     MENU_ACP_ACTION_TRIGGER_ADMIN = 'MENU_ACP_ACTION_TRIGGER_ADMIN'
     MENU_ACP_ACTION_DELETE_USER = 'MENU_ACP_ACTION_DELETE_USER'
@@ -56,6 +58,7 @@ class USERDB:
     TIMESTAMP_LAST_SNOOZE = 'timestamp_last_snooze'
     TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
     TIMESTAMP_LAST_APPROVAL_REQUEST = 'timestamp_last_approval_request'
+    TIMESTAMP_APPROVED = 'timestamp_approved'
 
 
 class BOTDB:
@@ -98,16 +101,17 @@ class ABBot:
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
                     CallbackQueryHandler(self.botUnsnooze, pattern='^' + CallbackVars.UNMUTE + '$'),
                     CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS + '\\d+$'),
-                    CallbackQueryHandler(self.botDisplayACPUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
+                    CallbackQueryHandler(self.botAcpDisplayUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
                 ],
                 CallbackVars.MENU_ACP: [
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
                     CallbackQueryHandler(self.botDisplayACPActions, pattern='^' + CallbackVars.MENU_ACP_ACTIONS + '.+$'),
                 ],
                 CallbackVars.MENU_ACP_ACTIONS: [
-                    CallbackQueryHandler(self.botDisplayACPUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
-                    CallbackQueryHandler(self.botUserTriggerAdmin, pattern='^' + CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + '.+$'),
-                    CallbackQueryHandler(self.botUserDelete, pattern='^' + CallbackVars.MENU_ACP_ACTION_DELETE_USER + '.+$'),
+                    CallbackQueryHandler(self.botAcpDisplayUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
+                    CallbackQueryHandler(self.botAcpApprovalAllow, pattern='^' + CallbackVars.MENU_ACP_APPROVE_USER + '.+$'),
+                    CallbackQueryHandler(self.botAcpUserTriggerAdmin, pattern='^' + CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + '.+$'),
+                    CallbackQueryHandler(self.botAcpUserDelete, pattern='^' + CallbackVars.MENU_ACP_ACTION_DELETE_USER + '.+$'),
                 ]
             },
             fallbacks=[CommandHandler('start', self.botDisplayMenuMain)],
@@ -119,6 +123,7 @@ class ABBot:
                           CallbackQueryHandler(self.botApprovalDeny, pattern='^' + CallbackVars.DECLINE_USER + '.+$')],
             states={
                 CallbackVars.APPROVE_USER: [
+                    # TODO: Remove this dummy code
                     CommandHandler('cancel', self.botDisplayMenuMain),
                     # Delete users account
                     MessageHandler(Filters.text, self.botDisplayMenuMain),
@@ -129,7 +134,20 @@ class ABBot:
             # allow_reentry=True,
         )
         dispatcher.add_handler(conv_handler2)
-        # dispatcher.add_error_handler(self.botErrorCallback)
+        dispatcher.add_error_handler(self.botErrorCallback)
+
+    def botErrorCallback(self, update: Update, context: CallbackContext) -> None:
+        try:
+            raise context.error
+        except BotException as botError:
+            menuText = botError.getErrorMsg()
+            try:
+                update.effective_chat.send_message(menuText, parse_mode="HTML", reply_markup=botError.getReplyMarkup())
+            except:
+                traceback.print_exc()
+                logging.warning('Exception during exception handling -> Raising initial Exception')
+                raise botError
+        return None
 
     def isNewUser(self, userID: int) -> bool:
         if str(userID) in self.couchdb[DATABASES.USERS]:
@@ -199,26 +217,22 @@ class ABBot:
                                          reply_markup=InlineKeyboardMarkup(mainMenuKeyboard))
         return CallbackVars.MENU_MAIN
 
-    def botDisplayACPUserList(self, update: Update, context: CallbackContext):
+    def botAcpDisplayUserList(self, update: Update, context: CallbackContext):
         query = update.callback_query
-        if query is not None:
-            query.answer()
-        users = self.getApprovedUsersExceptOne(str(update.effective_user.id))
+        query.answer()
+        if not self.userIsAdmin(str(update.effective_user.id)):
+            self.errorAdminRightsRequired()
+        users = self.getAllUsersExceptOne(str(update.effective_user.id))
         acpKeyboard = []
         for userIDStr in users:
-            userPrefix = ''
-            if not self.userIsApproved(userIDStr):
-                userPrefix = SYMBOLS.WARNING
-            elif self.userIsAdmin(userIDStr):
-                userPrefix = SYMBOLS.STAR
+            userPrefix = self.getUserRightsPrefix(userIDStr)
             acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_ACP_ACTIONS + userIDStr)])
         acpKeyboard.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück ', callback_data=CallbackVars.MENU_MAIN)])
         menuText = "Benutzer werden nicht über Änderungen informiert!!"
         menuText += "\n<b>Obacht</b>: Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!"
         menuText += "\n" + SYMBOLS.STAR + " = Admin"
         menuText += "\n" + SYMBOLS.WARNING + " = Unbestätigter User"
-        self.botEditOrSendNewMessage(update, context, menuText,
-                                     reply_markup=InlineKeyboardMarkup(acpKeyboard))
+        self.botEditOrSendNewMessage(update, context, menuText, reply_markup=InlineKeyboardMarkup(acpKeyboard))
         return CallbackVars.MENU_ACP
 
     def botDisplayACPActions(self, update: Update, context: CallbackContext):
@@ -226,22 +240,27 @@ class ABBot:
         if query is not None:
             query.answer()
         userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTIONS, "")
+        return self.acpDisplayUserActions(update, context, userIDStr)
+
+    def acpDisplayUserActions(self, update: Update, context: CallbackContext, userIDStr):
         userDoc = self.getUserDoc(userIDStr)
         if userDoc is None:
             return CallbackVars.MENU_ACP
         userOptions = []
+        menuText = "Verwalte Benutzer: " + self.getUserRightsPrefix(userIDStr) + self.getMeaningfulUserTitle(userIDStr)
         if not self.userIsApproved(userIDStr):
-            # TODO: Add functionality
-            userOptions.append([InlineKeyboardButton(SYMBOLS.CONFIRM + 'Benutzer bestätigen', callback_data=CallbackVars.MENU_ACP_ACTIONS)])
+            userOptions.append([InlineKeyboardButton(SYMBOLS.CONFIRM + 'Benutzer bestätigen', callback_data=CallbackVars.MENU_ACP_APPROVE_USER + userIDStr)])
         else:
             if self.userIsAdmin(userIDStr):
                 userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Admin entfernen', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
             else:
                 userOptions.append([InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
+            # TODO: Add functionality or remove this
             userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
+            menuText += "\nBenutzer bestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
+            menuText += "\n* = Button ohne Funktionalität"
         userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Löschen', callback_data=CallbackVars.MENU_ACP_ACTION_DELETE_USER + userIDStr)])
         userOptions.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_ACP)])
-        menuText = "* = Button ohne Funktionalität"
         self.botEditOrSendNewMessage(update, context, menuText,
                                      reply_markup=InlineKeyboardMarkup(userOptions))
         return CallbackVars.MENU_ACP_ACTIONS
@@ -289,11 +308,43 @@ class ABBot:
             self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet")
         else:
             self.botEditOrSendNewMessage(update, context, SYMBOLS.CONFIRM + "Benutzer bestätigt: " + self.getMeaningfulUserTitle(userIDStr))
-            userDoc[USERDB.IS_APPROVED] = True
-            userDoc[USERDB.APPROVED_BY] = self.getMeaningfulUserTitle(update.effective_user.id)
-            self.couchdb[DATABASES.USERS].save(userDoc)
+            self.approveUser(userIDStr, str(update.effective_user.id))
             self.notifyUserApproved(int(userIDStr))
         return ConversationHandler.END
+
+    def botAcpApprovalAllow(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        # Very important: Even non-admins could in theory trigger such actions if they're still in the admin menu -> Ensure that they can't do so!
+        if not self.userIsAdmin(str(update.effective_user.id)):
+            query.answer()
+            self.errorAdminRightsRequired()
+        userIDStr = query.data.replace(CallbackVars.APPROVE_USER, "")
+        self.approveUser(userIDStr, update.effective_user.id)
+        return self.acpDisplayUserActions(update, context, userIDStr)
+
+    def getUserRightsPrefix(self, userIDStr) -> str:
+        """ Returns prefox based on current users rights/state e.g. admin or user waiting for approval. """
+        if not self.userIsApproved(userIDStr):
+            return SYMBOLS.WARNING
+        elif self.userIsAdmin(userIDStr):
+            return SYMBOLS.STAR
+        else:
+            return ''
+
+    def approveUser(self, userIDStr, approvedByUserIDStr) -> None:
+        """
+        :param userIDStr: ID of the user to approve
+        :param approvedByUserIDStr: ID of the user that wants to approve the other user.
+        :return: None
+        """
+        userDoc = self.getUserDoc(userIDStr)
+        if userDoc is None:
+            logging.warning("User approval failed: userID doesn't exist in DB")
+            return
+        userDoc[USERDB.IS_APPROVED] = True
+        userDoc[USERDB.APPROVED_BY] = approvedByUserIDStr
+        userDoc[USERDB.APPROVED_BY] = datetime.now().timestamp()
+        self.couchdb[DATABASES.USERS].save(userDoc)
 
     def notifyUserApproved(self, userID: int):
         text = SYMBOLS.CONFIRM + "Du wurdest freigeschaltet!"
@@ -381,7 +432,7 @@ class ABBot:
         menuText = 'Benutzer erbittet Freischaltung: ' + self.getMeaningfulUserTitle(userID)
         approvalKeyboard = [
             [InlineKeyboardButton(SYMBOLS.CONFIRM + 'Annehmen', callback_data=CallbackVars.APPROVE_USER + str(userID)),
-             InlineKeyboardButton(SYMBOLS.DENY + 'Ablehnen', callback_data=CallbackVars.DECLINE_USER + str(userID))]
+             InlineKeyboardButton(SYMBOLS.DENY + 'Ablehnen/Löschen', callback_data=CallbackVars.DECLINE_USER + str(userID))]
         ]
         reply_markup = InlineKeyboardMarkup(approvalKeyboard)
         for adminUserID in adminUsers:
@@ -543,16 +594,26 @@ class ABBot:
                 users[userID] = userDoc
         return users
 
-    def botUserTriggerAdmin(self, update: Update, context: CallbackContext):
+    def getAllUsersExceptOne(self, ignoreUserID: str) -> dict:
+        """ Returns approved users AND admins """
+        users = {}
+        userDB = self.couchdb[DATABASES.USERS]
+        for userID in userDB:
+            if userID == ignoreUserID:
+                continue
+            userDoc = userDB[userID]
+            users[userID] = userDoc
+        return users
+
+    def botAcpUserTriggerAdmin(self, update: Update, context: CallbackContext):
         query = update.callback_query
+        # Very important: Even non-admins could in theory trigger such actions if they're still in the admin menu -> Ensure that they can't do so!
         if not self.userIsAdmin(str(update.effective_user.id)):
-            # TODO: Maybe return errormessage in this case
             query.answer()
-            return None
+            self.errorAdminRightsRequired()
         userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN, "")
         self.userTriggerAdmin(userIDStr)
-        # TODO: Fix this
-        return self.botDisplayACPUserList(update, context)
+        return self.acpDisplayUserActions(update, context, userIDStr)
 
     def userTriggerAdmin(self, userIDStr):
         userDoc = self.getUserDoc(userIDStr)
@@ -565,15 +626,15 @@ class ABBot:
             userDoc[USERDB.IS_ADMIN] = True
             self.couchdb[DATABASES.USERS].save(userDoc)
 
-    def botUserDelete(self, update: Update, context: CallbackContext):
+    def botAcpUserDelete(self, update: Update, context: CallbackContext):
         query = update.callback_query
+        # Very important: Even non-admins could in theory trigger such actions if they're still in the admin menu -> Ensure that they can't do so!
         if not self.userIsAdmin(str(update.effective_user.id)):
-            # TODO: Maybe return errormessage in this case
             query.answer()
-            return None
+            self.errorAdminRightsRequired()
         userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTION_DELETE_USER, "")
         self.userDelete(userIDStr)
-        return self.botDisplayACPUserList(update, context)
+        return self.botAcpDisplayUserList(update, context)
 
     def userDelete(self, userIDStr):
         """ Deletes user from DB. """
@@ -603,6 +664,9 @@ class ABBot:
         except:
             traceback.print_exc()
             logging.warning("Batchprocess failed")
+
+    def errorAdminRightsRequired(self):
+        raise BotException(SYMBOLS.WARNING + "Nur Admins dürfen diese Aktion ausführen!")
 
 
 if __name__ == '__main__':

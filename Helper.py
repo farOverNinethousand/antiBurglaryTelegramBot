@@ -2,6 +2,8 @@ import json
 import os
 from datetime import datetime
 
+from telegram import InlineKeyboardMarkup
+
 
 class Config:
     BOT_TOKEN = 'bot_token'
@@ -13,6 +15,7 @@ class Config:
     THINGSPEAK_READ_APIKEY = 'thingspeak_read_apikey'
     THINGSPEAK_FIELDS_ALARM_STATE_MAPPING = 'thingspeak_fields_alarm_state_mapping'
 
+
 def loadConfig(fallback=None):
     try:
         return loadJson('config.json')
@@ -20,10 +23,12 @@ def loadConfig(fallback=None):
         print('Failed to load ' + 'config.json')
         return fallback
 
+
 def loadJson(path):
     with open(os.path.join(os.getcwd(), path), encoding='utf-8') as infile:
         loadedJson = json.load(infile)
     return loadedJson
+
 
 class SYMBOLS:
     BACK = '🔙'
@@ -60,8 +65,22 @@ def getFormattedTimeDelta(futureTimestamp: float) -> str:
 def formatTimestampToGermanDateWithSeconds(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime('%d.%m.%Y %H:%M:%S Uhr')
 
+
 def formatTimestampToGermanDate(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime('%d.%m.%Y %H:%M Uhr')
 
+
 def formatDatetimeToGermanDate(date: datetime) -> str:
     return date.strftime('%d.%m.%Y %H:%M:%S Uhr')
+
+
+class BotException(Exception):
+    def __init__(self, errorMsg, replyMarkup=None):
+        self.errorMsg = errorMsg
+        self.replyMarkup = replyMarkup
+
+    def getErrorMsg(self):
+        return self.errorMsg
+
+    def getReplyMarkup(self) -> InlineKeyboardMarkup:
+        return self.replyMarkup
