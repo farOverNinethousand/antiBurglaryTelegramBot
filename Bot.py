@@ -54,9 +54,9 @@ class USERDB:
     IS_ADMIN = 'is_admin'
     APPROVAL_REQUEST_HAS_BEEN_SENT = 'approval_request_has_been_sent'
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
-    TIMESTAMP_REGISTERED = 'timestamp_registered'
-    TIMESTAMP_LAST_SNOOZE = 'timestamp_last_snooze'
-    TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
+    TIMESTAMP_REGISTERED = 'timestamp_registered'  # Timestamp when user entered correct password
+    TIMESTAMP_LAST_SNOOZE = 'timestamp_last_snooze'  # Timestamp when user triggered a snooze last time
+    # TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
     TIMESTAMP_LAST_APPROVAL_REQUEST = 'timestamp_last_approval_request'
     TIMESTAMP_APPROVED = 'timestamp_approved'
 
@@ -316,7 +316,7 @@ class ABBot:
         if not self.userIsAdmin(str(update.effective_user.id)):
             query.answer()
             self.errorAdminRightsRequired()
-        userIDStr = query.data.replace(CallbackVars.APPROVE_USER, "")
+        userIDStr = query.data.replace(CallbackVars.MENU_ACP_APPROVE_USER, "")
         self.approveUser(userIDStr, update.effective_user.id)
         return self.acpDisplayUserActions(update, context, userIDStr)
 
@@ -341,7 +341,7 @@ class ABBot:
             return
         userDoc[USERDB.IS_APPROVED] = True
         userDoc[USERDB.APPROVED_BY] = approvedByUserIDStr
-        userDoc[USERDB.APPROVED_BY] = datetime.now().timestamp()
+        userDoc[USERDB.TIMESTAMP_APPROVED] = datetime.now().timestamp()
         self.couchdb[DATABASES.USERS].save(userDoc)
 
     def notifyUserApproved(self, userID: int):
@@ -640,7 +640,6 @@ class ABBot:
         """ Deletes user from DB. """
         if userIDStr in self.couchdb[DATABASES.USERS]:
             del self.couchdb[DATABASES.USERS][userIDStr]
-
 
     # def getApprovedUnmutedUsers(self) -> dict:
     #     """ Returns approved users AND admins """
