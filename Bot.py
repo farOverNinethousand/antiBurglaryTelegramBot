@@ -33,8 +33,9 @@ class CallbackVars:
     APPROVE_USER = 'APPROVE_USER'
     DECLINE_USER = 'DECLINE_USER'
     MENU_ACP = 'MENU_ACP'
-    MENU_ACP_TRIGGER_ADMIN = 'MENU_ACP_TRIGGER_ADMIN'
-    MENU_ACP_DELETE_USER = 'MENU_ACP_DELETE_USER'
+    MENU_ACP_ACTIONS = 'MENU_ACP_ACTIONS'
+    MENU_ACP_ACTION_TRIGGER_ADMIN = 'MENU_ACP_ACTION_TRIGGER_ADMIN'
+    MENU_ACP_ACTION_DELETE_USER = 'MENU_ACP_ACTION_DELETE_USER'
 
 
 class DATABASES:
@@ -97,12 +98,16 @@ class ABBot:
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
                     CallbackQueryHandler(self.botUnsnooze, pattern='^' + CallbackVars.UNMUTE + '$'),
                     CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS + '\\d+$'),
-                    CallbackQueryHandler(self.botDisplayAdminControlPanel, pattern='^' + CallbackVars.MENU_ACP + '$'),
+                    CallbackQueryHandler(self.botDisplayACPUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
                 ],
                 CallbackVars.MENU_ACP: [
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
-                    CallbackQueryHandler(self.botUserTriggerAdmin, pattern='^' + CallbackVars.MENU_ACP_TRIGGER_ADMIN + '.+$'),
-                    CallbackQueryHandler(self.botUserDelete, pattern='^' + CallbackVars.MENU_ACP_DELETE_USER + '.+$'),
+                    CallbackQueryHandler(self.botDisplayACPActions, pattern='^' + CallbackVars.MENU_ACP_ACTIONS + '.+$'),
+                ],
+                CallbackVars.MENU_ACP_ACTIONS: [
+                    CallbackQueryHandler(self.botDisplayACPUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
+                    CallbackQueryHandler(self.botUserTriggerAdmin, pattern='^' + CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + '.+$'),
+                    CallbackQueryHandler(self.botUserDelete, pattern='^' + CallbackVars.MENU_ACP_ACTION_DELETE_USER + '.+$'),
                 ]
             },
             fallbacks=[CommandHandler('start', self.botDisplayMenuMain)],
@@ -132,15 +137,15 @@ class ABBot:
         else:
             return True
 
-    def isApprovedUser(self, userID: int) -> bool:
-        userDoc = self.getUserDoc(userID)
+    def userIsApproved(self, userIDStr: str) -> bool:
+        userDoc = self.getUserDoc(userIDStr)
         if userDoc is None or USERDB.IS_APPROVED not in userDoc:
             return False
         else:
             return userDoc[USERDB.IS_APPROVED]
 
-    def isAdmin(self, userID: int) -> bool:
-        userDoc = self.getUserDoc(userID)
+    def userIsAdmin(self, userIDStr: str) -> bool:
+        userDoc = self.getUserDoc(userIDStr)
         if userDoc is None or USERDB.IS_ADMIN not in userDoc:
             return False
         else:
@@ -161,7 +166,7 @@ class ABBot:
             userDoc[USERDB.USERNAME] = update.effective_user.username
         if update.effective_user.last_name is not None:
             userDoc[USERDB.LAST_NAME] = update.effective_user.last_name
-        if not self.isApprovedUser(update.effective_user.id):
+        if not self.userIsApproved(update.effective_user.id):
             menuText = 'Warte auf Freischaltung durch einen Admin.'
             menuText += '\nDu wirst benachrichtigt, sobald dein Account freigeschaltet wurde.'
             userDoc[USERDB.TIMESTAMP_LAST_APPROVAL_REQUEST] = datetime.now().timestamp()
@@ -186,7 +191,7 @@ class ABBot:
                                          InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS_12)])
                 mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS_24),
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS_48)])
-            if self.isAdmin(update.effective_user.id):
+            if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
                 mainMenuKeyboard.append([InlineKeyboardButton('ACP', callback_data=CallbackVars.MENU_ACP)])
@@ -194,34 +199,52 @@ class ABBot:
                                          reply_markup=InlineKeyboardMarkup(mainMenuKeyboard))
         return CallbackVars.MENU_MAIN
 
-    def botDisplayAdminControlPanel(self, update: Update, context: CallbackContext):
+    def botDisplayACPUserList(self, update: Update, context: CallbackContext):
         query = update.callback_query
         if query is not None:
             query.answer()
         users = self.getApprovedUsersExceptOne(str(update.effective_user.id))
         acpKeyboard = []
         for userIDStr in users:
-            userDoc = users[userIDStr]
             userPrefix = ''
-            if self.isAdmin(userIDStr):
+            if not self.userIsApproved(userIDStr):
+                userPrefix = SYMBOLS.WARNING
+            elif self.userIsAdmin(userIDStr):
                 userPrefix = SYMBOLS.STAR
-            if USERDB.USERNAME in userDoc:
-                acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), url="https://t.me/" + userDoc[USERDB.USERNAME])])
-            else:
-                acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_MAIN)])
-            userOptions = []
-            if self.isAdmin(userIDStr):
-                userOptions.append(InlineKeyboardButton(SYMBOLS.DENY + 'Admin entfernen', callback_data=CallbackVars.MENU_ACP_TRIGGER_ADMIN + userIDStr))
-            else:
-                userOptions.append(InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_TRIGGER_ADMIN + userIDStr))
-            userOptions.append(InlineKeyboardButton(SYMBOLS.DENY + 'Löschen ', callback_data=CallbackVars.MENU_ACP_DELETE_USER + userIDStr))
-            acpKeyboard.append(userOptions)
+            acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_ACP_ACTIONS + userIDStr)])
         acpKeyboard.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück ', callback_data=CallbackVars.MENU_MAIN)])
-        menuText = "Benutzer werden nicht über Änderungen informiert!"
-        menuText += SYMBOLS.WARNING + "\n<b>Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!</b>"
+        menuText = "Benutzer werden nicht über Änderungen informiert!!"
+        menuText += "\n<b>Obacht</b>: Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!"
+        menuText += "\n" + SYMBOLS.STAR + " = Admin"
+        menuText += "\n" + SYMBOLS.WARNING + " = Unbestätigter User"
         self.botEditOrSendNewMessage(update, context, menuText,
                                      reply_markup=InlineKeyboardMarkup(acpKeyboard))
         return CallbackVars.MENU_ACP
+
+    def botDisplayACPActions(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        if query is not None:
+            query.answer()
+        userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTIONS, "")
+        userDoc = self.getUserDoc(userIDStr)
+        if userDoc is None:
+            return CallbackVars.MENU_ACP
+        userOptions = []
+        if not self.userIsApproved(userIDStr):
+            # TODO: Add functionality
+            userOptions.append([InlineKeyboardButton(SYMBOLS.CONFIRM + 'Benutzer bestätigen', callback_data=CallbackVars.MENU_ACP_ACTIONS)])
+        else:
+            if self.userIsAdmin(userIDStr):
+                userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Admin entfernen', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
+            else:
+                userOptions.append([InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
+            userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
+        userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Löschen', callback_data=CallbackVars.MENU_ACP_ACTION_DELETE_USER + userIDStr)])
+        userOptions.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_ACP)])
+        menuText = "* = Button ohne Funktionalität"
+        self.botEditOrSendNewMessage(update, context, menuText,
+                                     reply_markup=InlineKeyboardMarkup(userOptions))
+        return CallbackVars.MENU_ACP_ACTIONS
 
     def botSnooze(self, update: Update, context: CallbackContext):
         query = update.callback_query
@@ -522,9 +545,14 @@ class ABBot:
 
     def botUserTriggerAdmin(self, update: Update, context: CallbackContext):
         query = update.callback_query
-        userIDStr = query.data.replace(CallbackVars.MENU_ACP_TRIGGER_ADMIN, "")
+        if not self.userIsAdmin(str(update.effective_user.id)):
+            # TODO: Maybe return errormessage in this case
+            query.answer()
+            return None
+        userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN, "")
         self.userTriggerAdmin(userIDStr)
-        return self.botDisplayAdminControlPanel(update, context)
+        # TODO: Fix this
+        return self.botDisplayACPUserList(update, context)
 
     def userTriggerAdmin(self, userIDStr):
         userDoc = self.getUserDoc(userIDStr)
@@ -539,9 +567,13 @@ class ABBot:
 
     def botUserDelete(self, update: Update, context: CallbackContext):
         query = update.callback_query
-        userIDStr = query.data.replace(CallbackVars.MENU_ACP_DELETE_USER, "")
+        if not self.userIsAdmin(str(update.effective_user.id)):
+            # TODO: Maybe return errormessage in this case
+            query.answer()
+            return None
+        userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTION_DELETE_USER, "")
         self.userDelete(userIDStr)
-        return self.botDisplayAdminControlPanel(update, context)
+        return self.botDisplayACPUserList(update, context)
 
     def userDelete(self, userIDStr):
         """ Deletes user from DB. """
