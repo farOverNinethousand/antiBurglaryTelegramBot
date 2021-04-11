@@ -123,10 +123,8 @@ class ABBot:
                           CallbackQueryHandler(self.botApprovalDeny, pattern='^' + CallbackVars.DECLINE_USER + '.+$')],
             states={
                 CallbackVars.APPROVE_USER: [
-                    # TODO: Remove this dummy code
+                    # This is just dummy code. The converstation really starts- and ends right away in the entry_points already!
                     CommandHandler('cancel', self.botDisplayMenuMain),
-                    # Delete users account
-                    MessageHandler(Filters.text, self.botDisplayMenuMain),
                 ],
             },
             fallbacks=[CommandHandler('start', self.botDisplayMenuMain)],
