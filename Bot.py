@@ -7,7 +7,7 @@ from typing import Union
 import couchdb
 import schedule
 from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Unauthorized
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
 
@@ -59,6 +59,7 @@ class USERDB:
     # TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
     TIMESTAMP_LAST_APPROVAL_REQUEST = 'timestamp_last_approval_request'
     TIMESTAMP_APPROVED = 'timestamp_approved'
+    TIMESTAMP_LAST_BLOCKED_BOT_ERROR = 'timestamp_last_blocked_bot_error'
 
 
 class BOTDB:
@@ -74,10 +75,12 @@ class ABBot:
             raise Exception('Broken config')
         """ Init DB """
         self.couchdb = couchdb.Server(self.cfg[Config.DB_URL])
-        self.lastAlarmSentTimestamp = -1
         self.lastEntryID = -1
+        self.lastAlarmSentTimestamp = -1
         self.lastEntryIDChangeTimestamp = -1
+        self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = -1
         self.lastSensorUpdateDatetime = datetime.now()
+        self.lastFieldIDToSensorsMapping = {}
         """ Create required DBs """
         if DATABASES.USERS not in self.couchdb:
             self.couchdb.create(DATABASES.USERS)
@@ -140,7 +143,7 @@ class ABBot:
         except BotException as botError:
             menuText = botError.getErrorMsg()
             try:
-                update.effective_chat.send_message(menuText, parse_mode="HTML", reply_markup=botError.getReplyMarkup())
+                self.sendMessage(chat_id=update.effective_user.id, text=menuText, reply_markup=botError.getReplyMarkup())
             except:
                 traceback.print_exc()
                 logging.warning('Exception during exception handling -> Raising initial Exception')
@@ -254,9 +257,9 @@ class ABBot:
             else:
                 userOptions.append([InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
             # TODO: Add functionality or remove this
-            userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
+            # userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
             menuText += "\nBenutzer bestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
-            menuText += "\n* = Button ohne Funktionalität"
+            menuText += "\n*Mit Sternchen gekennzeichnete Buttons = Buttons ohne Funktionalität!"
         userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Löschen', callback_data=CallbackVars.MENU_ACP_ACTION_DELETE_USER + userIDStr)])
         userOptions.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_ACP)])
         self.botEditOrSendNewMessage(update, context, menuText,
@@ -344,13 +347,13 @@ class ABBot:
         userDoc[USERDB.TIMESTAMP_APPROVED] = datetime.now().timestamp()
         self.couchdb[DATABASES.USERS].save(userDoc)
 
-    def notifyUserApproved(self, userID: int):
+    def notifyUserApproved(self, userID):
         text = SYMBOLS.CONFIRM + "Du wurdest freigeschaltet!"
         text += "\nMit /start gelangst du in's Hauptmenü."
-        self.updater.bot.send_message(chat_id=userID, text=text)
+        self.sendMessage(userID, text)
 
-    def notifyUserDeny(self, userID: int):
-        self.updater.bot.send_message(chat_id=userID, text=SYMBOLS.DENY + "Du wurdest abgelehnt!")
+    def notifyUserDeny(self, userID):
+        self.sendMessage(userID, SYMBOLS.DENY + "Du wurdest abgelehnt!")
 
     def botApprovalDeny(self, update: Update, context: CallbackContext):
         query = update.callback_query
@@ -394,11 +397,10 @@ class ABBot:
             else:
                 self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
                 self.sendUserApprovalRequestToAllAdmins(update.effective_user.id)
-            context.bot.send_message(chat_id=update.effective_message.chat_id, text=text, parse_mode='HTML')
+            self.sendMessage(update.effective_message.chat_id, text)
             return self.botDisplayMenuMain(update, context)
         else:
-            context.bot.send_message(chat_id=update.effective_message.chat_id, text=SYMBOLS.DENY + "Falsches Passwort!",
-                                     parse_mode='HTML')
+            self.sendMessage(chat_id=update.effective_message.chat_id, text=SYMBOLS.DENY + "Falsches Passwort!")
             return CallbackVars.MENU_ASK_FOR_PASSWORD
 
     def botEditOrSendNewMessage(self, update: Update, context: CallbackContext, text: str,
@@ -437,11 +439,7 @@ class ABBot:
         reply_markup = InlineKeyboardMarkup(approvalKeyboard)
         for adminUserID in adminUsers:
             print("Sending approval requests to admin " + str((index + 1)) + " / " + str(len(adminUsers)))
-            try:
-                self.updater.bot.send_message(chat_id=adminUserID, reply_markup=reply_markup, text=menuText, parse_mode='HTML')
-            except BadRequest:
-                # Ignore that
-                logging.info("Failed to send approval request to admin: " + self.getMeaningfulUserTitle(adminUserID))
+            self.sendMessage(adminUserID, menuText, reply_markup=reply_markup)
             index += 1
         userDoc[USERDB.APPROVAL_REQUEST_HAS_BEEN_SENT] = True
         userDB.save(userDoc)
@@ -461,14 +459,17 @@ class ABBot:
             self.lastEntryID = currentLastEntryID
             self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
             return
-        elif currentLastEntryID == self.lastEntryID and (datetime.now().timestamp() - self.lastEntryIDChangeTimestamp) >= 10 * 60:
+        elif currentLastEntryID == self.lastEntryID and datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= 10 * 60:
             # Check if our alarm system maybe hasn't been responding for a long amount of time
-            text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateDatetime) + "</b>\n" + alarmMessages
-            self.sendMessageToAllApprovedUsers(text)
+            lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
+            logging.warning("Got no new sensor data for some time! Last data is from: " + lastSensorDataIsFromDate)
+            if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60:
+                text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>\n" + alarmMessages
+                self.sendMessageToAllApprovedUsers(text)
+                self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = datetime.now().timestamp()
             return
         elif currentLastEntryID == self.lastEntryID:
-            logging.info("Not checking for alarm because: last_entry_id hasn't changed - it still is: " + str(currentLastEntryID) + " --> No new data available")
+            logging.info("last_entry_id hasn't changed - it still is: " + str(currentLastEntryID) + " --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(self.lastSensorUpdateDatetime))
             return
         # Most of all times we want to check only new entries but if e.g. the channel gets reset we need to check entries lower than our last saved number!
         checkOnlyHigherEntryIDs = True
@@ -483,11 +484,10 @@ class ABBot:
             if fieldKey not in channelInfo:
                 logging.info("Detected unconfigured field: " + fieldKey)
                 continue
-            fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(name=channelInfo[fieldKey], triggerValue=sensorUserConfig['trigger'], triggerOperator=sensorUserConfig['operator'])
+            fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(name=channelInfo[fieldKey], triggerValue=sensorUserConfig['trigger'], triggerOperator=sensorUserConfig['operator'], alarmOnlyOnceUntilUntriggered=sensorUserConfig['alarmOnlyOnceUntilUntriggered'])
         alarmDatetime = None
         alarmSensorsNames = []
         alarmSensorsDebugTextStrings = []
-        entryIDs = []
         for feed in sensorResults:
             # Check all fields for which we got alarm state mapping
             entryID = feed['entry_id']
@@ -496,32 +496,36 @@ class ABBot:
                 continue
             for fieldID, sensor in fieldIDToSensorMapping.items():
                 fieldKey = 'field' + str(fieldID)
-                if fieldKey not in feed:
-                    continue
                 currentFieldValue = float(feed[fieldKey])
                 sensor.setValue(currentFieldValue)
                 thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
                 self.lastSensorUpdateDatetime = thisDatetime
                 # Check if alarm state is given
                 if sensor.isTriggered():
-                    # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
-                    allowToSendAlarm = datetime.now().timestamp() > (self.lastAlarmSentTimestamp + 1 * 60)
-                    if allowToSendAlarm:
-                        alarmDatetime = thisDatetime
-                        if sensor.getName() not in alarmSensorsNames:
-                            alarmSensorsNames.append(sensor.getName())
-                            alarmSensorsDebugTextStrings.append(sensor.getName() + "(" + fieldKey + ")")
-                        if entryID not in entryIDs:
-                            entryIDs.append(entryID)
-                    else:
-                        print("Flood protection: Ignoring alarm of sensor: " + sensor.getName())
-        if len(alarmSensorsNames) > 0 and not self.isGloballySnoozed():
-            logging.warning("Sending out alarms...")
-            text = "<b>Alarm! " + channelInfo['name'] + "</b>"
-            text += '\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames)
-            # Sending those alarms can take some time thus let's update this timestamp here already
-            self.lastAlarmSentTimestamp = datetime.now().timestamp()
-            self.sendMessageToAllApprovedUsers(text)
+                    if sensor.isAlarmOnlyOnceUntilUntriggered() and fieldID in self.lastFieldIDToSensorsMapping and self.lastFieldIDToSensorsMapping[fieldID].isTriggered():
+                        # print("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
+                        logging.info("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
+                        continue
+                    alarmDatetime = thisDatetime
+                    if sensor.getName() not in alarmSensorsNames:
+                        alarmSensorsNames.append(sensor.getName())
+                        alarmSensorsDebugTextStrings.append(sensor.getName() + "(" + fieldKey + ")")
+        if len(alarmSensorsNames) > 0:
+            print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
+            if self.isGloballySnoozed():
+                print("Not sending alarms because: Snoozed")
+            elif datetime.now().timestamp() < (self.lastAlarmSentTimestamp + 1 * 60):
+                # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
+                print("Not sending alarms because: Flood protection")
+            else:
+                logging.warning("Sending out alarms...")
+                text = "<b>Alarm! " + channelInfo['name'] + "</b>"
+                text += '\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames)
+                # Sending those alarms can take some time thus let's update this timestamp here already
+                self.lastAlarmSentTimestamp = datetime.now().timestamp()
+                self.sendMessageToAllApprovedUsers(text)
+
+        self.lastFieldIDToSensorsMapping = fieldIDToSensorMapping.copy()
         self.lastEntryID = currentLastEntryID
         self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
 
@@ -542,12 +546,20 @@ class ABBot:
     def sendMessageToMultipleUsers(self, users: dict, text: str):
         logging.info("Sending messages to " + str(len(users)) + " users...")
         for userID in users:
-            userDoc = users[userID]
-            try:
-                self.updater.bot.send_message(chat_id=userID, text=text, parse_mode='HTML')
-            except BadRequest:
-                # Maybe user has blocked bot
-                pass
+            self.sendMessage(userID, text)
+
+    def sendMessage(self, chat_id, text: str, reply_markup=None):
+        try:
+            self.updater.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode='HTML')
+        except BadRequest:
+            pass
+        except Unauthorized:
+            # E.g. user has blocked bot -> Save that so we can remove such users on DB cleanup
+            userDoc = self.getUserDoc(chat_id)
+            if userDoc is not None:
+                userDoc[USERDB.TIMESTAMP_LAST_BLOCKED_BOT_ERROR] = datetime.now().timestamp()
+                self.couchdb[DATABASES.USERS].save(userDoc)
+            pass
 
     def getMeaningfulUserTitle(self, userID) -> str:
         userDoc = self.getUserDoc(userID)

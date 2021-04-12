@@ -10,12 +10,14 @@
     "1": {
       "name": "Door",
       "trigger": 1,
-      "operator": "EQ"
+      "operator": "EQ",
+      "alarmOnlyOnceUntilUntriggered": false
     },
     "2": {
       "name": "Movement",
       "trigger": 0,
-      "operator": "EQ"
+      "operator": "EQ",
+      "alarmOnlyOnceUntilUntriggered": false
     }
   }
 }
