@@ -332,18 +332,18 @@ class ABBot:
         else:
             return ''
 
-    def approveUser(self, userIDStr, approvedByUserIDStr) -> None:
+    def approveUser(self, userID, approvedByUserID: Union[int, str]) -> None:
         """
-        :param userIDStr: ID of the user to approve
-        :param approvedByUserIDStr: ID of the user that wants to approve the other user.
+        :param userID: ID of the user to approve
+        :param approvedByUserID: ID of the user that wants to approve the other user.
         :return: None
         """
-        userDoc = self.getUserDoc(userIDStr)
+        userDoc = self.getUserDoc(userID)
         if userDoc is None:
             logging.warning("User approval failed: userID doesn't exist in DB")
             return
         userDoc[USERDB.IS_APPROVED] = True
-        userDoc[USERDB.APPROVED_BY] = approvedByUserIDStr
+        userDoc[USERDB.APPROVED_BY] = approvedByUserID
         userDoc[USERDB.TIMESTAMP_APPROVED] = datetime.now().timestamp()
         self.couchdb[DATABASES.USERS].save(userDoc)
 
@@ -626,7 +626,7 @@ class ABBot:
         self.userTriggerAdmin(userIDStr)
         return self.acpDisplayUserActions(update, context, userIDStr)
 
-    def userTriggerAdmin(self, userIDStr):
+    def userTriggerAdmin(self, userIDStr: str):
         userDoc = self.getUserDoc(userIDStr)
         if userDoc is None:
             return
