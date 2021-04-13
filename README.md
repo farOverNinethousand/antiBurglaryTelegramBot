@@ -2,7 +2,6 @@
 Arduino + Light Barriers + thingspeak.com API + Telegram Bot
 
 # TODOs
-* "AdminOrException" Handling umbauen
 * Irgendwas findet man immer :D
 
 # Installation
