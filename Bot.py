@@ -26,10 +26,6 @@ class CallbackVars:
     APPROVE_USER = 'APPROVE_USER'
     DECLINE_USER = 'DECLINE_USER'
     MUTE_HOURS = 'MUTE_HOURS_'
-    MUTE_HOURS_1 = 'MUTE_HOURS_1'
-    MUTE_HOURS_12 = 'MUTE_HOURS_12'
-    MUTE_HOURS_24 = 'MUTE_HOURS_24'
-    MUTE_HOURS_48 = 'MUTE_HOURS_48'
     UNMUTE = 'UNMUTE'
     MUTE_SELECTION = 'MUTE_SELECTION'
     MENU_ACP = 'MENU_ACP'
@@ -73,22 +69,23 @@ class ABBot:
         self.cfg = loadConfig()
         if self.cfg is None or self.cfg.get(Config.DB_URL) is None:
             raise Exception('Broken config')
-        """ Init DB """
+        # Init CouchDB
         self.couchdb = couchdb.Server(self.cfg[Config.DB_URL])
-        self.lastEntryID = -1
-        self.lastAlarmSentTimestamp = -1
-        self.lastEntryIDChangeTimestamp = -1
-        self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = -1
-        self.lastSensorUpdateDatetime = datetime.now()
-        self.lastFieldIDToSensorsMapping = {}
-        """ Create required DBs """
+        # Create required DBs
         if DATABASES.USERS not in self.couchdb:
             self.couchdb.create(DATABASES.USERS)
         if DATABASES.BOTSTATE not in self.couchdb:
             self.couchdb.create(DATABASES.BOTSTATE)
             # Store everything in one doc
             self.couchdb[DATABASES.BOTSTATE][DATABASES.BOTSTATE] = {}
-
+        # Init other fields
+        self.lastEntryID = -1
+        self.lastAlarmSentTimestamp = -1
+        self.lastEntryIDChangeTimestamp = -1
+        self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = -1
+        self.lastSensorUpdateDatetime = datetime.now()
+        self.lastFieldIDToSensorsMapping = {}
+        # Now comes all the bot related stuff
         self.updater = Updater(self.cfg[Config.BOT_TOKEN], request_kwargs={"read_timeout": 30})
         dispatcher = self.updater.dispatcher
         # Main conversation handler - handles nearly all bot menus.
@@ -199,17 +196,15 @@ class ABBot:
                 menuText += '\n' + SYMBOLS.WARNING + 'Benachrichtigungen deaktiviert bis: ' + formatTimestampToGermanDate(
                     self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')'
                 menuText += '\nVon: ' + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID())
+                menuText += '\nDie Person, die den Alarm deaktiviert hat sollte ihn selbstständig wieder aktivieren also Finger weg es sei denn dies wurde vergessen!'
                 mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
-                # Cleanup DB
-                if USERDB.TIMESTAMP_SNOOZE_UNTIL in userDoc:
-                    del userDoc[USERDB.TIMESTAMP_SNOOZE_UNTIL]
-                    self.couchdb[DATABASES.USERS].save(userDoc)
                 menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen abschalten.'
-                mainMenuKeyboard.append([InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS_1),
-                                         InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS_12)])
-                mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS_24),
-                                         InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS_48)])
+                menuText += '\nAlle Bot User werden benachrichtigt wenn du einen den Buttons drückst also lass\' bitte deinen Spieltrieb beiseite!'
+                mainMenuKeyboard.append([InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS + '1'),
+                                         InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS + '12')])
+                mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS + '24'),
+                                         InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
@@ -224,14 +219,18 @@ class ABBot:
         self.adminOrException(update.effective_user.id)
         users = self.getAllUsersExceptOne(str(update.effective_user.id))
         acpKeyboard = []
-        for userIDStr in users:
-            userPrefix = self.getUserRightsPrefix(userIDStr)
-            acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_ACP_ACTIONS + userIDStr)])
+        if len(users) == 0:
+            # Edge-case
+            menuText = "<b>Es gibt außer dir noch keine Benutzer!</b>"
+        else:
+            for userIDStr in users:
+                userPrefix = self.getUserRightsPrefix(userIDStr)
+                acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_ACP_ACTIONS + userIDStr)])
+            menuText = "Benutzer werden nicht über Änderungen informiert!"
+            menuText += "\n<b>Obacht</b>: Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!"
+            menuText += "\n" + SYMBOLS.STAR + " = Admin"
+            menuText += "\n" + SYMBOLS.WARNING + " = Unbestätigter User"
         acpKeyboard.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück ', callback_data=CallbackVars.MENU_MAIN)])
-        menuText = "Benutzer werden nicht über Änderungen informiert!!"
-        menuText += "\n<b>Obacht</b>: Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!"
-        menuText += "\n" + SYMBOLS.STAR + " = Admin"
-        menuText += "\n" + SYMBOLS.WARNING + " = Unbestätigter User"
         self.botEditOrSendNewMessage(update, context, menuText, reply_markup=InlineKeyboardMarkup(acpKeyboard))
         return CallbackVars.MENU_ACP
 
@@ -257,6 +256,7 @@ class ABBot:
                 userOptions.append([InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
             # TODO: Add functionality or remove this
             # userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
+            menuText += "\nRegistriert am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_REGISTERED])
             menuText += "\nBestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
             menuText += "\nBestätigt am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_APPROVED])
             menuText += "\n*Mit Sternchen gekennzeichnete Buttons = Buttons ohne Funktionalität!"
@@ -269,7 +269,7 @@ class ABBot:
 
     def botSnooze(self, update: Update, context: CallbackContext):
         query = update.callback_query
-        # query.answer()
+        query.answer()
         if self.getCurrentGlobalSnoozeTimestamp() < datetime.now().timestamp():
             snoozeHours = int(query.data.replace(CallbackVars.MUTE_HOURS, ""))
             snoozeUntil = datetime.now().timestamp() + snoozeHours * 60 * 60
@@ -292,6 +292,7 @@ class ABBot:
         return self.botDisplayMenuMain(update, context)
 
     def botUnsnooze(self, update: Update, context: CallbackContext):
+        """ Activates notifications for all users. """
         # Save global state
         botDoc = self.getBotDoc()
         if BOTDB.TIMESTAMP_SNOOZE_UNTIL in botDoc:
@@ -324,7 +325,7 @@ class ABBot:
         return self.acpDisplayUserActions(update, context, userIDStr)
 
     def getUserRightsPrefix(self, userIDStr) -> str:
-        """ Returns prefox based on current users rights/state e.g. admin or user waiting for approval. """
+        """ Returns prefix based on current users rights/state e.g. admin or user waiting for approval. """
         if not self.userIsApproved(userIDStr):
             return SYMBOLS.WARNING
         elif self.userIsAdmin(userIDStr):
@@ -370,7 +371,7 @@ class ABBot:
             self.notifyUserDeny(userIDStr)
         return ConversationHandler.END
 
-    def userExistsInDB(self, userID) -> bool:
+    def userExistsInDB(self, userID: Union[int, str]) -> bool:
         return str(userID) in self.couchdb[DATABASES.USERS]
 
     def botCheckPassword(self, update: Update, context: CallbackContext):
@@ -426,7 +427,7 @@ class ABBot:
                 print("Sending notification " + str((index + 1)) + " / " + str(len(usersToApprove)))
                 self.sendUserApprovalRequestToAllAdmins(userID)
 
-    def sendUserApprovalRequestToAllAdmins(self, userID) -> None:
+    def sendUserApprovalRequestToAllAdmins(self, userID: Union[int, str]) -> None:
         adminUsers = self.getAdmins()
         index = 0
         userDB = self.couchdb[DATABASES.USERS]
@@ -444,7 +445,7 @@ class ABBot:
         userDoc[USERDB.APPROVAL_REQUEST_HAS_BEEN_SENT] = True
         userDB.save(userDoc)
 
-    def updateNotifications(self):
+    def sendAlarmNotifications(self):
         # https://community.thingspeak.com/documentation%20.../api/
         conn = HTTP20Connection('api.thingspeak.com')
         alarmMessages = ''
@@ -463,7 +464,7 @@ class ABBot:
             # Check if our alarm system maybe hasn't been responding for a long amount of time
             lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
             logging.warning("Got no new sensor data for some time! Last data is from: " + lastSensorDataIsFromDate)
-            if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60:
+            if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60 and not self.isGloballySnoozed():
                 text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>\n" + alarmMessages
                 self.sendMessageToAllApprovedUsers(text)
                 self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = datetime.now().timestamp()
@@ -562,6 +563,7 @@ class ABBot:
             pass
 
     def getMeaningfulUserTitle(self, userID) -> str:
+        """ This will usually return something like "@ExampleUsername (FirstName LastName)". """
         userDoc = self.getUserDoc(userID)
         if userDoc is None:
             # This should never happen
@@ -586,7 +588,7 @@ class ABBot:
         return admins
 
     def getApprovedUsers(self) -> dict:
-        """ Returns approved users AND admins """
+        """ Returns approved users and admins. """
         users = {}
         userDB = self.couchdb[DATABASES.USERS]
         for userID in userDB:
@@ -596,7 +598,7 @@ class ABBot:
         return users
 
     def getApprovedUsersExceptOne(self, ignoreUserID: str) -> dict:
-        """ Returns approved users AND admins """
+        """ Returns approved users and admins. """
         users = {}
         userDB = self.couchdb[DATABASES.USERS]
         for userID in userDB:
@@ -608,7 +610,7 @@ class ABBot:
         return users
 
     def getAllUsersExceptOne(self, ignoreUserID: str) -> dict:
-        """ Returns approved users AND admins """
+        """ Returns ALL users and admins. """
         users = {}
         userDB = self.couchdb[DATABASES.USERS]
         for userID in userDB:
@@ -663,7 +665,7 @@ class ABBot:
     #             users[userID] = userDoc
     #     return users
 
-    def getUserDoc(self, userID):
+    def getUserDoc(self, userID: Union[int, str]):
         return self.couchdb[DATABASES.USERS].get(str(userID))
 
     def getBotDoc(self):
@@ -671,7 +673,7 @@ class ABBot:
 
     def handleBatchProcess(self) -> None:
         try:
-            self.updateNotifications()
+            self.sendAlarmNotifications()
         except:
             traceback.print_exc()
             logging.warning("Batchprocess failed")
