@@ -45,7 +45,6 @@ class SYMBOLS:
     BEER = '🍺'
     BEERS = '🍻'
     CORONA = '😷'
-    FRIES = '🍟'
     INFORMATION = 'ℹ'
     WRENCH = '🔧'
     WARNING = '⚠'

@@ -1,8 +1,15 @@
 # antiBurglaryTelegramBot
 Arduino + Light Barriers + thingspeak.com API + Telegram Bot
 
+# Was kann dieses Projekt?
+* Daten von einfachen Sensoren, die auf [thingspeak.com](https://thingspeak.com/) hochgeladen wurden simpel auswerten und bei Bedarf Alarme an alle Benutzer eines Telegram Bots schicken.
+* Der Telegram Bot unterscheidet zwischen User und Admin und hat eine simple Benutzerverwaltung
+* Alle bestätigten Bot Nutzer können Alarme global deaktivieren, wobei jeweils alle anderen über die Deaktivierung benachrichtigt werden
+
 # TODOs
 * Irgendwas findet man immer :D
+* Menüführung/Buttons verschönern
+* Letzte Sensordaten im Hauptmenü anzeigen ? (Nur Admins)
 
 # Installation
 1. ``git clone doesesProjekt``
@@ -10,6 +17,7 @@ Arduino + Light Barriers + thingspeak.com API + Telegram Bot
 3. ``pip3 install -r requirements.txt``
 4. [CouchDB](https://linuxize.com/post/how-to-install-couchdb-on-ubuntu-20-04/) installieren und einrichten.  
 5. `config.json.default` in `config.json` umbenennen und eigene Daten eintragen (siehe unten).
+6. Beim ersten Start- und erfolgreicher Passworteingabe ist der erste Benutzer automatisch ein Admin.
 
 # Config Erklärung
 

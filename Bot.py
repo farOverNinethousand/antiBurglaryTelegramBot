@@ -226,7 +226,8 @@ class ABBot:
             for userIDStr in users:
                 userPrefix = self.getUserRightsPrefix(userIDStr)
                 acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_ACP_ACTIONS + userIDStr)])
-            menuText = "Benutzer werden nicht über Änderungen informiert!"
+            menuText = "<b>Benutzerliste:</b>"
+            menuText += "\nBenutzer werden nicht über Änderungen informiert!"
             menuText += "\n<b>Obacht</b>: Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!"
             menuText += "\n" + SYMBOLS.STAR + " = Admin"
             menuText += "\n" + SYMBOLS.WARNING + " = Unbestätigter User"
