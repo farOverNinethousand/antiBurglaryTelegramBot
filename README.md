@@ -85,5 +85,4 @@ Dieser Alarm passiert jeweils nur 1x bis der Sensor nicht mehr getriggert ist.
    In diesem Beispiel ist es eine Batteriespannung - sobald sie wieder über 11.5 Volt steigt wird dieser Sensor "enttriggert" (naja Schwellwert eben) und es darf ein neuer Alarm kommen, wenn die Spannung wieder abfällt.
    
 # Hardware
-Die Hardwareseite dieses Projektes findet sich [HIER](https://github.com/Kaistee93/AlarmSystem_ESP8266).  
-Das Projekt kann grundsätzlich mit anderen 
+Die Hardwareseite dieses Projektes findet sich [HIER](https://github.com/Kaistee93/AlarmSystem_ESP8266).
