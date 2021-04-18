@@ -2,14 +2,24 @@
 Arduino + Light Barriers + thingspeak.com API + Telegram Bot
 
 # Was kann dieses Projekt?
-* Daten von einfachen Sensoren, die auf [thingspeak.com](https://thingspeak.com/) hochgeladen wurden simpel auswerten und bei Bedarf Alarme an alle Benutzer eines Telegram Bots schicken.
+* Daten von einfachen Sensoren, die auf [thingspeak.com](https://thingspeak.com/) hochgeladen wurden simpel auswerten und bei Bedarf Alarme an alle Benutzer des eingerichteten Telegram Bots schicken.
 * Der Telegram Bot unterscheidet zwischen User und Admin und hat eine simple Benutzerverwaltung
-* Alle bestätigten Bot Nutzer können Alarme global deaktivieren, wobei jeweils alle anderen über die Deaktivierung benachrichtigt werden
+* Alle Benutzer können die Bot Alarme deaktivieren, was wiederum alle benachrichtigt
+
+## Wo kam dieses Projekt zum Einsatz?
+Überwachung eines privaten Waldgrundstückes.
+
+# Screenshots  
+Hauptmenü:  
+![Hauptmenü](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_1.png "Hauptmenü")  
+ACP (**A**dmin**C**ontrol**P**anel)  Userliste  
+![AdminControlPanel](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_2.png "AdminControlPanel")  
+ACP (**A**dmin**C**ontrol**P**anel)  User Aktionen  
+![AdminControlPanel User Aktionen](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_3.png "AdminControlPanel User Aktionen")  
 
 # TODOs
 * Irgendwas findet man immer :D
 * Menüführung/Buttons verschönern
-* Letzte Sensordaten im Hauptmenü anzeigen ? (Nur Admins)
 
 # Installation
 1. ``git clone diesesProjekt``
@@ -19,8 +29,7 @@ Arduino + Light Barriers + thingspeak.com API + Telegram Bot
 5. `config.json.default` in `config.json` umbenennen und eigene Daten eintragen (siehe unten).
 6. Beim ersten Start- und erfolgreicher Passworteingabe ist der erste Benutzer automatisch ein Admin.
 
-# Config Erklärung
-
+# Config Erklärung  
 Key | Datentyp | Beschreibung | Beispiel
 --- | --- | --- | ---
 bot_token | String | Bot Token | `1234567890:HJDH-gh56urj6r5u6grhrkJO7Qw`
@@ -41,7 +50,6 @@ thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean |
 {
   "bot_token": "YourBotToken",
   "db_url": "http://TestUser:TestPW@localhost:5984/",
-  "public_channel_name": "ExampleChannel",
   "bot_name": "ExampleBot",
   "bot_password": "Test123456",
   "thingspeak_channel": 123456,
