@@ -502,8 +502,12 @@ class ABBot:
                 continue
             for fieldID, sensor in fieldIDToSensorMapping.items():
                 fieldKey = 'field' + str(fieldID)
-                currentFieldValue = float(feed[fieldKey])
-                sensor.setValue(currentFieldValue)
+                # 2021-04-18: Thingspeak sends all values as String though we expect float or int
+                fieldValueRaw = feed[fieldKey]
+                if '.' in fieldValueRaw:
+                    sensor.setValue(float(fieldValueRaw))
+                else:
+                    sensor.setValue(int(fieldValueRaw))
                 thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
                 self.lastSensorUpdateDatetime = thisDatetime
                 # Check if alarm state is given
