@@ -15,9 +15,15 @@
     },
     "2": {
       "name": "Movement",
-      "trigger": 0,
+      "trigger": 1,
       "operator": "EQ",
       "alarmOnlyOnceUntilUntriggered": false
+    },
+    "3": {
+      "name": "BatteryVoltage",
+      "trigger": 11.5,
+      "operator": "LESS",
+      "alarmOnlyOnceUntilUntriggered": true
     }
   }
 }
