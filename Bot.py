@@ -209,7 +209,7 @@ class ABBot:
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
                 if len(self.lastFieldIDToSensorsMapping) > 0:
-                    menuText += "\nLetzte Sensordaten"
+                    menuText += "\nLetzte Sensordaten:"
                     for sensorID, sensor in self.lastFieldIDToSensorsMapping.items():
                         menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue())
                 mainMenuKeyboard.append([InlineKeyboardButton('ACP', callback_data=CallbackVars.MENU_ACP)])
