@@ -18,8 +18,8 @@ ACP (**A**dmin**C**ontrol**P**anel)  User Aktionen
 ![AdminControlPanel User Aktionen](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_3.png "AdminControlPanel User Aktionen")  
 
 # TODOs
+* Funktion zum Benachrichtigen aller Bot User (eigenen Text eingeben, der an alle User und Admins geschickt wird)
 * Irgendwas findet man immer :D
-* Menüführung/Buttons verschönern
 
 # Installation
 1. ``git clone diesesProjekt``
@@ -44,7 +44,7 @@ thingspeak_fields_alarm_state_mapping[trigger] | float | Ab welchem Wert soll di
 thingspeak_fields_alarm_state_mapping[operator] | String | Operator für den Triggerwert | `LESS, MORE, EQ`
 thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean | Ist dies ein Schwellwertsensor, der nach dem ersten Triggern für einen Alarm aktiv ist bis er nicht mehr getriggert ist? | `true`
 
-# Beispiel Config (config.json.defaut)
+# Beispiel Config (config.json.default)
 
 ```
 {
