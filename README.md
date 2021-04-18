@@ -12,7 +12,7 @@ Arduino + Light Barriers + thingspeak.com API + Telegram Bot
 * Letzte Sensordaten im Hauptmenü anzeigen ? (Nur Admins)
 
 # Installation
-1. ``git clone doesesProjekt``
+1. ``git clone diesesProjekt``
 2. ``apt install python3-pip``
 3. ``pip3 install -r requirements.txt``
 4. [CouchDB](https://linuxize.com/post/how-to-install-couchdb-on-ubuntu-20-04/) installieren und einrichten.  
@@ -69,7 +69,7 @@ thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean |
 }
 ```
 
-Diese Config tut folgendes:  
+**Diese Config tut folgendes:**  
 1. Alarm wenn Sensor des thingspeak.com Feldes "field1" den Wert "1" hat.
 2. Alarm wenn "field2" den Wert "1" hat.
 3. Alarm, wenn "field3" einen Wert unter "11.5" hat.  

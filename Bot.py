@@ -208,6 +208,10 @@ class ABBot:
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
+                if len(self.lastFieldIDToSensorsMapping) > 0:
+                    menuText += "\nLetzte Sensordaten"
+                    for sensorID, sensor in self.lastFieldIDToSensorsMapping.items():
+                        menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue())
                 mainMenuKeyboard.append([InlineKeyboardButton('ACP', callback_data=CallbackVars.MENU_ACP)])
             self.botEditOrSendNewMessage(update, context, menuText,
                                          reply_markup=InlineKeyboardMarkup(mainMenuKeyboard))
