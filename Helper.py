@@ -51,6 +51,8 @@ class SYMBOLS:
     NEWSPAPER = '📰'
     PLUS = '➕'
     WHITE_DOWN_POINTING_BACKHAND = '👇'
+    MEGAPHONE = '📣'
+    FLASH = '⚡'
 
 
 def getFormattedTimeDelta(futureTimestamp: float) -> str:

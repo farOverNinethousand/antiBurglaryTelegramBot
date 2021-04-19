@@ -27,7 +27,8 @@ class CallbackVars:
     DECLINE_USER = 'DECLINE_USER'
     MUTE_HOURS = 'MUTE_HOURS_'
     UNMUTE = 'UNMUTE'
-    MUTE_SELECTION = 'MUTE_SELECTION'
+    SEND_BROADCAST = 'SEND_BROADCAST'
+    # MUTE_SELECTION = 'MUTE_SELECTION'
     MENU_ACP = 'MENU_ACP'
     MENU_ACP_APPROVE_USER = 'MENU_ACP_APPROVE_USER'
     MENU_ACP_DECLINE_USER = 'MENU_ACP_DECLINE_USER'
@@ -52,6 +53,7 @@ class USERDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     TIMESTAMP_REGISTERED = 'timestamp_registered'  # Timestamp when user entered correct password
     TIMESTAMP_LAST_SNOOZE = 'timestamp_last_snooze'  # Timestamp when user triggered a snooze last time
+    TIMESTAMP_LAST_BROADCAST_SENT = 'timestamp_last_broadcast_sent'
     # TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
     TIMESTAMP_LAST_APPROVAL_REQUEST = 'timestamp_last_approval_request'
     TIMESTAMP_APPROVED = 'timestamp_approved'
@@ -101,7 +103,12 @@ class ABBot:
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
                     CallbackQueryHandler(self.botUnsnooze, pattern='^' + CallbackVars.UNMUTE + '$'),
                     CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS + '\\d+$'),
+                    CallbackQueryHandler(self.botSendUserDefinedBroadcastSTART, pattern='^' + CallbackVars.SEND_BROADCAST + '$'),
                     CallbackQueryHandler(self.botAcpDisplayUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
+                ],
+                CallbackVars.SEND_BROADCAST: [
+                    CommandHandler('cancel', self.botDisplayMenuMain),
+                    MessageHandler(Filters.text, self.botSendUserDefinedBroadcast),
                 ],
                 CallbackVars.MENU_ACP: [
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
@@ -153,15 +160,15 @@ class ABBot:
         else:
             return True
 
-    def userIsApproved(self, userIDStr: str) -> bool:
-        userDoc = self.getUserDoc(userIDStr)
+    def userIsApproved(self, userID: Union[int, str]) -> bool:
+        userDoc = self.getUserDoc(userID)
         if userDoc is None or USERDB.IS_APPROVED not in userDoc:
             return False
         else:
             return userDoc[USERDB.IS_APPROVED]
 
-    def userIsAdmin(self, userIDStr: str) -> bool:
-        userDoc = self.getUserDoc(userIDStr)
+    def userIsAdmin(self, userID: Union[int, str]) -> bool:
+        userDoc = self.getUserDoc(userID)
         if userDoc is None or USERDB.IS_ADMIN not in userDoc:
             return False
         else:
@@ -193,10 +200,9 @@ class ABBot:
             menuText = 'Hallo ' + update.effective_user.first_name + ','
             mainMenuKeyboard = []
             if self.getCurrentGlobalSnoozeTimestamp() > datetime.now().timestamp():
-                menuText += '\n' + SYMBOLS.WARNING + 'Benachrichtigungen deaktiviert bis: ' + formatTimestampToGermanDate(
-                    self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')'
+                menuText += '\n<b>' + SYMBOLS.WARNING + 'Benachrichtigungen deaktiviert bis: ' + formatTimestampToGermanDate(
+                    self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')</b>'
                 menuText += '\nVon: ' + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID())
-                menuText += '\nDie Person, die den Alarm deaktiviert hat sollte ihn selbstständig wieder aktivieren also Finger weg es sei denn dies wurde vergessen!'
                 mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
                 menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen abschalten.'
@@ -205,6 +211,7 @@ class ABBot:
                                          InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS + '12')])
                 mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS + '24'),
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
+            mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.MEGAPHONE + 'Broadcast', callback_data=CallbackVars.SEND_BROADCAST)])
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
@@ -212,7 +219,7 @@ class ABBot:
                     menuText += "\nLetzte Sensordaten:"
                     for sensorID, sensor in self.lastFieldIDToSensorsMapping.items():
                         menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue())
-                mainMenuKeyboard.append([InlineKeyboardButton('ACP', callback_data=CallbackVars.MENU_ACP)])
+                mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.FLASH + 'ACP', callback_data=CallbackVars.MENU_ACP)])
             self.botEditOrSendNewMessage(update, context, menuText,
                                          reply_markup=InlineKeyboardMarkup(mainMenuKeyboard))
         return CallbackVars.MENU_MAIN
@@ -313,7 +320,7 @@ class ABBot:
         userIDStr = query.data.replace(CallbackVars.APPROVE_USER, "")
         userDoc = self.getUserDoc(userIDStr)
         if userDoc is None or userDoc.get(USERDB.IS_APPROVED, False):
-            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet")
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet!")
         else:
             self.botEditOrSendNewMessage(update, context, SYMBOLS.CONFIRM + "Benutzer bestätigt: " + self.getMeaningfulUserTitle(userIDStr))
             self.approveUser(userIDStr, str(update.effective_user.id))
@@ -367,7 +374,7 @@ class ABBot:
         userIDStr = query.data.replace(CallbackVars.DECLINE_USER, "")
         userDoc = self.getUserDoc(userIDStr)
         if userDoc is None:
-            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet")
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet!")
         else:
             text = SYMBOLS.DENY + "Benutzer abgelehnt: " + self.getMeaningfulUserTitle(userIDStr)
             text += "\nVersehentlich abgelehnt? Mit dem Kommando /start kann der Benutzer eine neue anfrage stellen!"
@@ -406,8 +413,32 @@ class ABBot:
             self.sendMessage(update.effective_message.chat_id, text)
             return self.botDisplayMenuMain(update, context)
         else:
+            # User entered incorrect password
             self.sendMessage(chat_id=update.effective_message.chat_id, text=SYMBOLS.DENY + "Falsches Passwort!")
             return CallbackVars.MENU_ASK_FOR_PASSWORD
+
+    def botSendUserDefinedBroadcastSTART(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        text = SYMBOLS.MEGAPHONE + "Gib den zu sendenden Text ein."
+        text += "\nDieser wird ohne weitere Bestätigung an alle Bot User geschickt!"
+        text += "\nAbbruch mit /cancel!"
+        self.botEditOrSendNewMessage(update, context, text)
+        return CallbackVars.SEND_BROADCAST
+
+    def botSendUserDefinedBroadcast(self, update: Update, context: CallbackContext):
+        answerToUser = SYMBOLS.CONFIRM + "Broadcast gesendet!"
+        answerToUser += "\nMit /start kommst du zurück in's Hauptmenü."
+        self.sendMessage(chat_id=update.effective_message.chat_id, text=answerToUser)
+        userMessage = update.message.text
+        text = "<b>Broadcast von " + self.getMeaningfulUserTitle(update.effective_user.id) + ":</b>"
+        text += "\n" + userMessage
+        recipients = self.getApprovedUsersExceptOne(update.effective_user.id)
+        self.sendMessageToMultipleUsers(recipients, text)
+        userDoc = self.getUserDoc(update.effective_user.id)
+        userDoc[USERDB.TIMESTAMP_LAST_BROADCAST_SENT] = datetime.now().timestamp()
+        self.couchdb[DATABASES.USERS].save(userDoc)
+        return ConversationHandler.END
 
     def botEditOrSendNewMessage(self, update: Update, context: CallbackContext, text: str,
                                 reply_markup: ReplyMarkup = None):
@@ -459,24 +490,6 @@ class ABBot:
         channelInfo = apiResult['channel']
         sensorResults = apiResult['feeds']
         currentLastEntryID = channelInfo['last_entry_id']
-        # E.g. no alarm on first start - we don't want to send alarms for old events or during testing
-        if self.lastEntryID == -1:
-            logging.info("Not checking for alarm because: First start")
-            self.lastEntryID = currentLastEntryID
-            self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
-            return
-        elif currentLastEntryID == self.lastEntryID and datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= 10 * 60:
-            # Check if our alarm system maybe hasn't been responding for a long amount of time
-            lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
-            logging.warning("Got no new sensor data for some time! Last data is from: " + lastSensorDataIsFromDate)
-            if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60 and not self.isGloballySnoozed():
-                text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>\n" + alarmMessages
-                self.sendMessageToAllApprovedUsers(text)
-                self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = datetime.now().timestamp()
-            return
-        elif currentLastEntryID == self.lastEntryID:
-            logging.info("last_entry_id hasn't changed - it still is: " + str(currentLastEntryID) + " --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(self.lastSensorUpdateDatetime))
-            return
         # Most of all times we want to check only new entries but if e.g. the channel gets reset we need to check entries lower than our last saved number!
         checkOnlyHigherEntryIDs = True
         if currentLastEntryID < self.lastEntryID:
@@ -520,20 +533,36 @@ class ABBot:
                     if sensor.getName() not in alarmSensorsNames:
                         alarmSensorsNames.append(sensor.getName())
                         alarmSensorsDebugTextStrings.append(sensor.getName() + "(" + fieldKey + ")")
-        if len(alarmSensorsNames) > 0:
+
+        if currentLastEntryID == self.lastEntryID:
+            logging.info("last_entry_id hasn't changed - it still is: " + str(
+                currentLastEntryID) + " --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
+                self.lastSensorUpdateDatetime))
+            if datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= 10 * 60:
+                # Check if our alarm system maybe hasn't been responding for a long amount of time
+                lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
+                logging.warning("Got no new sensor data for some time! Last data is from: " + lastSensorDataIsFromDate)
+                if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60 and not self.isGloballySnoozed():
+                    text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>\n" + alarmMessages
+                    self.sendMessageToAllApprovedUsers(text)
+                    self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = datetime.now().timestamp()
+            return
+        elif len(alarmSensorsNames) > 0:
             print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
-            if self.isGloballySnoozed():
-                print("Not sending alarms because: Snoozed")
+            if self.lastEntryID == -1:
+                # E.g. no alarm on first start - we don't want to send alarms for old events or during testing
+                logging.info("Not sending alarms because: First start")
+            elif self.isGloballySnoozed():
+                logging.info("Not sending alarms because: Snoozed")
             elif datetime.now().timestamp() < (self.lastAlarmSentTimestamp + 1 * 60):
                 # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
-                print("Not sending alarms because: Flood protection")
+                logging.info("Not sending alarms because: Flood protection")
             else:
                 logging.warning("Sending out alarms...")
                 text = "<b>Alarm! " + channelInfo['name'] + "</b>"
                 text += '\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames)
-                # Sending those alarms can take some time thus let's update this timestamp here already
-                self.lastAlarmSentTimestamp = datetime.now().timestamp()
                 self.sendMessageToAllApprovedUsers(text)
+                self.lastAlarmSentTimestamp = datetime.now().timestamp()
 
         self.lastFieldIDToSensorsMapping = fieldIDToSensorMapping.copy()
         self.lastEntryID = currentLastEntryID
@@ -606,10 +635,11 @@ class ABBot:
                 users[userID] = userDoc
         return users
 
-    def getApprovedUsersExceptOne(self, ignoreUserID: str) -> dict:
+    def getApprovedUsersExceptOne(self, ignoreUserID: Union[int, str]) -> dict:
         """ Returns approved users and admins. """
         users = {}
         userDB = self.couchdb[DATABASES.USERS]
+        ignoreUserID = str(ignoreUserID)
         for userID in userDB:
             if userID == ignoreUserID:
                 continue
@@ -618,10 +648,11 @@ class ABBot:
                 users[userID] = userDoc
         return users
 
-    def getAllUsersExceptOne(self, ignoreUserID: str) -> dict:
+    def getAllUsersExceptOne(self, ignoreUserID: Union[int, str]) -> dict:
         """ Returns ALL users and admins. """
         users = {}
         userDB = self.couchdb[DATABASES.USERS]
+        ignoreUserID = str(ignoreUserID)
         for userID in userDB:
             if userID == ignoreUserID:
                 continue
@@ -637,8 +668,8 @@ class ABBot:
         self.userTriggerAdmin(userIDStr)
         return self.acpDisplayUserActions(update, context, userIDStr)
 
-    def userTriggerAdmin(self, userIDStr: str):
-        userDoc = self.getUserDoc(userIDStr)
+    def userTriggerAdmin(self, userID: Union[int, str]):
+        userDoc = self.getUserDoc(userID)
         if userDoc is None:
             return
         elif userDoc.get(USERDB.IS_ADMIN, False):
@@ -656,10 +687,11 @@ class ABBot:
         self.userDelete(userIDStr)
         return self.botAcpDisplayUserList(update, context)
 
-    def userDelete(self, userIDStr) -> bool:
+    def userDelete(self, userID: Union[int, str]) -> bool:
         """ Deletes user from DB. """
-        if userIDStr in self.couchdb[DATABASES.USERS]:
-            del self.couchdb[DATABASES.USERS][userIDStr]
+        userID = str(userID)
+        if userID in self.couchdb[DATABASES.USERS]:
+            del self.couchdb[DATABASES.USERS][userID]
             return True
         else:
             return False

@@ -18,7 +18,6 @@ ACP (**A**dmin**C**ontrol**P**anel)  User Aktionen
 ![AdminControlPanel User Aktionen](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_3.png "AdminControlPanel User Aktionen")  
 
 # TODOs
-* Funktion zum Benachrichtigen aller Bot User (eigenen Text eingeben, der an alle User und Admins geschickt wird)
 * Irgendwas findet man immer :D
 
 # Installation
@@ -83,6 +82,12 @@ thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean |
 3. Alarm, wenn "field3" einen Wert unter "11.5" hat.  
 Dieser Alarm passiert jeweils nur 1x bis der Sensor nicht mehr getriggert ist. 
    In diesem Beispiel ist es eine Batteriespannung - sobald sie wieder über 11.5 Volt steigt wird dieser Sensor "enttriggert" (naja Schwellwert eben) und es darf ein neuer Alarm kommen, wenn die Spannung wieder abfällt.
+   
+# Bot Commands Liste
+```
+start - Hauptmenü
+cancel - 🚫Abbrechen
+```
    
 # Hardware
 Die Hardwareseite dieses Projektes findet sich [HIER](https://github.com/Kaistee93/AlarmSystem_ESP8266).
