@@ -1,5 +1,5 @@
 # antiBurglaryTelegramBot
-Arduino + Light Barriers + thingspeak.com API + Telegram Bot
+Arduino + Sensors + thingspeak.com API + Telegram Bot
 
 # Was kann dieses Projekt?
 * Daten von einfachen Sensoren, die auf [thingspeak.com](https://thingspeak.com/) hochgeladen wurden simpel auswerten und bei Bedarf Alarme an alle Benutzer des eingerichteten Telegram Bots schicken.
