@@ -29,6 +29,9 @@ class CallbackVars:
     UNMUTE = 'UNMUTE'
     SEND_BROADCAST = 'SEND_BROADCAST'
     # MUTE_SELECTION = 'MUTE_SELECTION'
+    MENU_SETTINGS = 'MENU_SETTINGS'
+    MENU_SETTINGS_DISPLAY_OWN_DATA = 'MENU_SETTINGS_DISPLAY_OWN_DATA'
+    MENU_SETTINGS_DELETE_ACCOUNT = 'MENU_SETTINGS_DELETE_ACCOUNT'
     MENU_ACP = 'MENU_ACP'
     MENU_ACP_APPROVE_USER = 'MENU_ACP_APPROVE_USER'
     MENU_ACP_DECLINE_USER = 'MENU_ACP_DECLINE_USER'
@@ -57,12 +60,15 @@ class USERDB:
     # TIMESTAMP_LAST_PASSWORD_TRY = 'timestamp_last_password_try'
     TIMESTAMP_LAST_APPROVAL_REQUEST = 'timestamp_last_approval_request'
     TIMESTAMP_APPROVED = 'timestamp_approved'
+    TIMESTAMP_LAST_TIME_REQUESTED_DSGVO_DATA = 'timestamp_last_time_requested_dsgvo_data'
     TIMESTAMP_LAST_BLOCKED_BOT_ERROR = 'timestamp_last_blocked_bot_error'
 
 
 class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
+
+BOT_VERSION = "0.7.7"
 
 
 class ABBot:
@@ -104,11 +110,25 @@ class ABBot:
                     CallbackQueryHandler(self.botUnsnooze, pattern='^' + CallbackVars.UNMUTE + '$'),
                     CallbackQueryHandler(self.botSnooze, pattern='^' + CallbackVars.MUTE_HOURS + '\\d+$'),
                     CallbackQueryHandler(self.botSendUserDefinedBroadcastSTART, pattern='^' + CallbackVars.SEND_BROADCAST + '$'),
+                    CallbackQueryHandler(self.botDisplaySettings, pattern='^' + CallbackVars.MENU_SETTINGS + '$'),
                     CallbackQueryHandler(self.botAcpDisplayUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
                 ],
                 CallbackVars.SEND_BROADCAST: [
                     CommandHandler('cancel', self.botDisplayMenuMain),
                     MessageHandler(Filters.text, self.botSendUserDefinedBroadcast),
+                ],
+                CallbackVars.MENU_SETTINGS: [
+                    CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
+                    CallbackQueryHandler(self.botDisplayOwnUserData, pattern='^' + CallbackVars.MENU_SETTINGS_DISPLAY_OWN_DATA + '$'),
+                    CallbackQueryHandler(self.botDeleteOwnAccountSTART, pattern='^' + CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT + '$'),
+                ],
+                CallbackVars.MENU_SETTINGS_DISPLAY_OWN_DATA: [
+                    # Back button
+                    CallbackQueryHandler(self.botDisplaySettings, pattern='^' + CallbackVars.MENU_SETTINGS + '$'),
+                ],
+                CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT: [
+                    CommandHandler('cancel', self.botDisplayMenuMain),
+                    MessageHandler(Filters.text, self.botDeleteOwnAccount),
                 ],
                 CallbackVars.MENU_ACP: [
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
@@ -206,12 +226,13 @@ class ABBot:
                 mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
                 menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen abschalten.'
-                menuText += '\nAlle Bot User werden benachrichtigt wenn du einen den Buttons drückst also lass\' bitte deinen Spieltrieb beiseite!'
+                menuText += '\nAlle Bot User werden benachrichtigt wenn du einen der Snooze-Buttons drückst also lass\' bitte deinen Spieltrieb beiseite!'
                 mainMenuKeyboard.append([InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS + '1'),
                                          InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS + '12')])
                 mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS + '24'),
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.MEGAPHONE + 'Broadcast', callback_data=CallbackVars.SEND_BROADCAST)])
+            mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.WRENCH + 'Einstellungen', callback_data=CallbackVars.MENU_SETTINGS)])
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
@@ -220,6 +241,7 @@ class ABBot:
                     for sensorID, sensor in self.lastFieldIDToSensorsMapping.items():
                         menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue())
                 mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.FLASH + 'ACP', callback_data=CallbackVars.MENU_ACP)])
+            menuText += "\n\n<i>antiBurglaryTelegramBot " + BOT_VERSION + " made with " + SYMBOLS.HEART + " and " + SYMBOLS.BEERS + " for Epi (2021)</i>"
             self.botEditOrSendNewMessage(update, context, menuText,
                                          reply_markup=InlineKeyboardMarkup(mainMenuKeyboard))
         return CallbackVars.MENU_MAIN
@@ -379,7 +401,7 @@ class ABBot:
             text = SYMBOLS.DENY + "Benutzer abgelehnt: " + self.getMeaningfulUserTitle(userIDStr)
             text += "\nVersehentlich abgelehnt? Mit dem Kommando /start kann der Benutzer eine neue anfrage stellen!"
             self.botEditOrSendNewMessage(update, context, text)
-            del self.couchdb[DATABASES.USERS][userIDStr]
+            self.deleteUser(userIDStr)
             self.notifyUserDeny(userIDStr)
         return ConversationHandler.END
 
@@ -416,6 +438,53 @@ class ABBot:
             # User entered incorrect password
             self.sendMessage(chat_id=update.effective_message.chat_id, text=SYMBOLS.DENY + "Falsches Passwort!")
             return CallbackVars.MENU_ASK_FOR_PASSWORD
+
+    def botDisplaySettings(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        text = SYMBOLS.WRENCH + "<b>Einstellungen</b>"
+        settingsKeyboard = [
+            [InlineKeyboardButton(SYMBOLS.INFORMATION + 'DSGVO Abfrage', callback_data=CallbackVars.MENU_SETTINGS_DISPLAY_OWN_DATA),
+             InlineKeyboardButton(SYMBOLS.DENY + 'Account löschen', callback_data=CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT)],
+            [InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_MAIN)]
+        ]
+        reply_markup = InlineKeyboardMarkup(settingsKeyboard)
+        self.botEditOrSendNewMessage(update, context, text=text, reply_markup=reply_markup)
+        return CallbackVars.MENU_SETTINGS
+
+    def botDisplayOwnUserData(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        text = SYMBOLS.INFORMATION + "<b>DSGVO Datenherausgabe</b>"
+        text += "<pre>"
+        userDoc = self.getUserDoc(update.effective_user.id)
+        userDoc[USERDB.TIMESTAMP_LAST_TIME_REQUESTED_DSGVO_DATA] = datetime.now().timestamp()
+        self.couchdb[DATABASES.USERS].save(userDoc)
+        for key, value in userDoc.items():
+            text += "\n" + key + ": " + str(value)
+        text += "</pre>"
+        reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_SETTINGS)]])
+        self.botEditOrSendNewMessage(update, context, text=text, reply_markup=reply_markup)
+        return CallbackVars.MENU_SETTINGS_DISPLAY_OWN_DATA
+
+    def botDeleteOwnAccountSTART(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        text = SYMBOLS.DENY + "<b>Accountlöschung</b>"
+        text += "\nAntworte mit deiner Telegram Benutzer-ID <b>" + str(update.effective_user.id) + "</b> um deinen Account zu löschen."
+        text += "\nNach der Löschung wirst du den Bot ohne erneute Bestätigung nicht mehr verwenden können!!"
+        text += "\nAbbruch mit /cancel"
+        self.botEditOrSendNewMessage(update, context, text=text)
+        return CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT
+
+    def botDeleteOwnAccount(self, update: Update, context: CallbackContext):
+        if update.message.text != str(update.effective_user.id):
+            self.sendMessage(chat_id=update.effective_user.id, text=SYMBOLS.DENY + "Falsche Antwort!")
+            return CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT
+        else:
+            self.deleteUser(update.effective_user.id)
+            self.sendMessage(chat_id=update.effective_user.id, text=SYMBOLS.CONFIRM + "Dein Account wurde gelöscht. Cya!")
+            return ConversationHandler.END
 
     def botSendUserDefinedBroadcastSTART(self, update: Update, context: CallbackContext):
         query = update.callback_query
@@ -679,22 +748,21 @@ class ABBot:
             userDoc[USERDB.IS_ADMIN] = True
             self.couchdb[DATABASES.USERS].save(userDoc)
 
+    def deleteUser(self, userID: Union[int, str]) -> bool:
+        """ Deletes a user from DB. """
+        if str(userID) in self.couchdb[DATABASES.USERS]:
+            del self.couchdb[DATABASES.USERS][str(userID)]
+            return True
+        else:
+            return False
+
     def botAcpUserDelete(self, update: Update, context: CallbackContext):
         query = update.callback_query
         query.answer()
         self.adminOrException(update.effective_user.id)
         userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTION_DELETE_USER, "")
-        self.userDelete(userIDStr)
+        self.deleteUser(userIDStr)
         return self.botAcpDisplayUserList(update, context)
-
-    def userDelete(self, userID: Union[int, str]) -> bool:
-        """ Deletes user from DB. """
-        userID = str(userID)
-        if userID in self.couchdb[DATABASES.USERS]:
-            del self.couchdb[DATABASES.USERS][userID]
-            return True
-        else:
-            return False
 
     # def getApprovedUnmutedUsers(self) -> dict:
     #     """ Returns approved users AND admins """
