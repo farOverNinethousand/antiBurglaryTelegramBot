@@ -68,7 +68,7 @@ class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
 
-BOT_VERSION = "0.7.7"
+BOT_VERSION = "0.7.8"
 
 
 class ABBot:
@@ -444,7 +444,7 @@ class ABBot:
         query.answer()
         text = SYMBOLS.WRENCH + "<b>Einstellungen</b>"
         settingsKeyboard = [
-            [InlineKeyboardButton(SYMBOLS.INFORMATION + 'DSGVO Abfrage', callback_data=CallbackVars.MENU_SETTINGS_DISPLAY_OWN_DATA),
+            [InlineKeyboardButton(SYMBOLS.INFORMATION + 'DSGVO Anfrage', callback_data=CallbackVars.MENU_SETTINGS_DISPLAY_OWN_DATA),
              InlineKeyboardButton(SYMBOLS.DENY + 'Account löschen', callback_data=CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT)],
             [InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_MAIN)]
         ]
@@ -455,7 +455,7 @@ class ABBot:
     def botDisplayOwnUserData(self, update: Update, context: CallbackContext):
         query = update.callback_query
         query.answer()
-        text = SYMBOLS.INFORMATION + "<b>DSGVO Datenherausgabe</b>"
+        text = SYMBOLS.INFORMATION + "<b>Deine Auskunftsunterlagen nach Art. 15 DSGVO</b>"
         text += "<pre>"
         userDoc = self.getUserDoc(update.effective_user.id)
         userDoc[USERDB.TIMESTAMP_LAST_TIME_REQUESTED_DSGVO_DATA] = datetime.now().timestamp()
@@ -463,8 +463,9 @@ class ABBot:
         for key, value in userDoc.items():
             text += "\n" + key + ": " + str(value)
         text += "</pre>"
+        text += "\ntimestamp Werte = Datumsangaben -> Umrechenbar in lesbare Datumsangaben z.B. mit Webtool epochconverter.com (Werte ohne Nachkommastellen verwenden)"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_SETTINGS)]])
-        self.botEditOrSendNewMessage(update, context, text=text, reply_markup=reply_markup)
+        self.botEditOrSendNewMessage(update, context, text=text, reply_markup=reply_markup, disable_web_page_preview=True)
         return CallbackVars.MENU_SETTINGS_DISPLAY_OWN_DATA
 
     def botDeleteOwnAccountSTART(self, update: Update, context: CallbackContext):
@@ -510,13 +511,13 @@ class ABBot:
         return ConversationHandler.END
 
     def botEditOrSendNewMessage(self, update: Update, context: CallbackContext, text: str,
-                                reply_markup: ReplyMarkup = None):
+                                reply_markup: ReplyMarkup = None, disable_web_page_preview=None):
         query = update.callback_query
         if query is not None:
             query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode='HTML')
         else:
             context.bot.send_message(chat_id=update.effective_message.chat_id, reply_markup=reply_markup, text=text,
-                                     parse_mode='HTML')
+                                     parse_mode='HTML', disable_web_page_preview=disable_web_page_preview)
 
     def sendUserApprovalRequests(self) -> None:
         usersToApprove = {}
