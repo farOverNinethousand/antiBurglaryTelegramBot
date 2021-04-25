@@ -68,7 +68,7 @@ class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
 
-BOT_VERSION = "0.7.8"
+BOT_VERSION = "0.7.9"
 
 
 class ABBot:
@@ -205,10 +205,16 @@ class ABBot:
         # Known user -> Update DB as TG users could change their username and first/last name at any time!
         userDoc = self.getUserDoc(update.effective_user.id)
         userDoc[USERDB.FIRST_NAME] = update.effective_user.first_name
-        if update.effective_user.username is not None:
-            userDoc[USERDB.USERNAME] = update.effective_user.username
         if update.effective_user.last_name is not None:
             userDoc[USERDB.LAST_NAME] = update.effective_user.last_name
+        else:
+            del userDoc[USERDB.LAST_NAME]
+        if update.effective_user.username is not None:
+            userDoc[USERDB.USERNAME] = update.effective_user.username
+        else:
+            del userDoc[USERDB.USERNAME]
+        # Update DB
+        self.couchdb[DATABASES.USERS].save(userDoc)
         if not self.userIsApproved(update.effective_user.id):
             menuText = 'Warte auf Freischaltung durch einen Admin.'
             menuText += '\nDu wirst benachrichtigt, sobald dein Account freigeschaltet wurde.'
