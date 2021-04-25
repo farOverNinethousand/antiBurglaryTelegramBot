@@ -18,6 +18,7 @@ ACP (**A**dmin**C**ontrol**P**anel)  User Aktionen
 ![AdminControlPanel User Aktionen](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_3.png "AdminControlPanel User Aktionen")  
 
 # TODOs
+* Bei wieder-aktivierung des Alarms die letzten "Alarm wurde deaktiviert" Messages bearbeiten, sodass alle User den aktuellen Status sehen ohne, dass eine neue Benachrichtigung gesendet werden muss
 * Irgendwas findet man immer :D
 
 # Installation

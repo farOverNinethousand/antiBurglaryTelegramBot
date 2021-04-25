@@ -560,7 +560,6 @@ class ABBot:
     def sendAlarmNotifications(self):
         # https://community.thingspeak.com/documentation%20.../api/
         conn = HTTP20Connection('api.thingspeak.com')
-        alarmMessages = ''
         conn.request("GET", '/channels/' + str(self.cfg[Config.THINGSPEAK_CHANNEL]) + '/feed.json?key=' + self.cfg[Config.THINGSPEAK_READ_APIKEY] + '&offset=1')
         apiResult = loads(conn.get_response().read())
         channelInfo = apiResult['channel']
@@ -619,17 +618,17 @@ class ABBot:
                 lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
                 logging.warning("Got no new sensor data for some time! Last data is from: " + lastSensorDataIsFromDate)
                 if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60 and not self.isGloballySnoozed():
-                    text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>\n" + alarmMessages
+                    text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>"
                     self.sendMessageToAllApprovedUsers(text)
                     self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = datetime.now().timestamp()
             return
         elif len(alarmSensorsNames) > 0:
             print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
             if self.lastEntryID == -1:
-                # E.g. no alarm on first start - we don't want to send alarms for old events or during testing
+                # E.g. no alarm on first start - we don't want to send alarms for old events or during testing every time after starting the bot
                 logging.info("Not sending alarms because: First start")
             elif self.isGloballySnoozed():
-                logging.info("Not sending alarms because: Snoozed")
+                logging.info("Not sending alarms because: Globally snoozed!")
             elif datetime.now().timestamp() < (self.lastAlarmSentTimestamp + 1 * 60):
                 # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
                 logging.info("Not sending alarms because: Flood protection")
