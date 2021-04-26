@@ -599,10 +599,12 @@ class ABBot:
         # Most of all times we want to check only new entries but if e.g. the channel gets reset we need to check entries lower than our last saved number!
         checkOnlyHigherEntryIDs = True
         if currentLastEntryID < self.lastEntryID:
+            # Rare case
             checkOnlyHigherEntryIDs = False
-            logging.info("Checking ALL entries")
+            logging.info("Thingspeak channel has been reset(?) -> Checking ALL entries")
         else:
-            logging.info("Checking all entries > " + str(self.lastEntryID))
+            # logging.info("Checking all entries > " + str(self.lastEntryID))
+            pass
         fieldIDToSensorMapping = {}
         for fieldIDStr, sensorUserConfig in self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING].items():
             fieldKey = 'field' + fieldIDStr
@@ -641,13 +643,12 @@ class ABBot:
                         alarmSensorsDebugTextStrings.append(sensor.getName() + "(" + fieldKey + ")")
 
         if currentLastEntryID == self.lastEntryID:
-            logging.info("last_entry_id hasn't changed - it still is: " + str(
-                currentLastEntryID) + " --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateDatetime))
+            logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
+                self.lastSensorUpdateDatetime) + " [" + str(self.lastEntryID) + "]")
             if datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= 10 * 60:
                 # Check if our alarm system maybe hasn't been responding for a long amount of time
                 lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
-                logging.warning("Got no new sensor data for some time! Last data is from: " + lastSensorDataIsFromDate)
+                logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
                 if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60 and not self.isGloballySnoozed():
                     text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>"
                     self.sendMessageToAllApprovedUsers(text)
