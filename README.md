@@ -18,7 +18,6 @@ ACP (**A**dmin**C**ontrol**P**anel)  User Aktionen
 ![AdminControlPanel User Aktionen](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_3.png "AdminControlPanel User Aktionen")  
 
 # TODOs
-* Bei wieder-aktivierung des Alarms die letzten "Alarm wurde deaktiviert" Messages bearbeiten, sodass alle User den aktuellen Status sehen ohne, dass eine neue Benachrichtigung gesendet werden muss
 * Irgendwas findet man immer :D
 
 # Installation
@@ -41,8 +40,8 @@ thingspeak_read_apikey | String | Thingspeak.com read apikey | `FFFFGGGGHHHHTJLK
 thingspeak_fields_alarm_state_mapping | Map | Mapping für Sensordaten | `---`
 thingspeak_fields_alarm_state_mapping[name] | String | Name des Sensors | `Test`
 thingspeak_fields_alarm_state_mapping[trigger] | float | Ab welchem Wert soll dieser Sensor als getriggert gelten? | `3.15`
-thingspeak_fields_alarm_state_mapping[operator] | String | Operator für den Triggerwert | `LESS, MORE, EQ`
-thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean | Ist dies ein Schwellwertsensor, der nach dem ersten Triggern für einen Alarm aktiv ist bis er nicht mehr getriggert ist? | `true`
+thingspeak_fields_alarm_state_mapping[operator] | String | Operator für den Triggerwert | `LESS`, `MORE`, `EQ`
+thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean  [Optional]  default=false | Ist dies ein Schwellwertsensor, der nach dem ersten Triggern nur einen Alarm auslösen darf bis er wieder nicht mehr getriggert ist?  Beispiel: Nur eine Warnung bei niedrigem Akkustand bis dieser wieder 'hoch' ist. | `true`
 
 # Beispiel Config (config.json.default)
 

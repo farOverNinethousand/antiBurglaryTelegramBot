@@ -23,6 +23,11 @@
       "trigger": 11.5,
       "operator": "LESS",
       "alarmOnlyOnceUntilUntriggered": true
+    },
+    "4": {
+      "name": "Temperatur",
+      "trigger": 100,
+      "operator": "MORE"
     }
   }
 }

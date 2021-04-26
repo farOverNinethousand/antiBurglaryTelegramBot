@@ -6,7 +6,7 @@ from typing import Union
 
 import couchdb
 import schedule
-from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.error import BadRequest, Unauthorized
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
@@ -62,13 +62,14 @@ class USERDB:
     TIMESTAMP_APPROVED = 'timestamp_approved'
     TIMESTAMP_LAST_TIME_REQUESTED_DSGVO_DATA = 'timestamp_last_time_requested_dsgvo_data'
     TIMESTAMP_LAST_BLOCKED_BOT_ERROR = 'timestamp_last_blocked_bot_error'
+    MSG_ID_LAST_SNOOZE_NOTIFICATION = 'msg_id_last_snooze_notification'
 
 
 class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
 
-BOT_VERSION = "0.7.9"
+BOT_VERSION = "0.8.0"
 
 
 class ABBot:
@@ -212,7 +213,10 @@ class ABBot:
         if update.effective_user.username is not None:
             userDoc[USERDB.USERNAME] = update.effective_user.username
         else:
-            userDoc.pop(USERDB.USERNAME)
+            del userDoc[USERDB.USERNAME]
+        # User has used bot in the meantime so he won't pay attention to that old "snoozed by..." message -> Remove this property from DB in order to save http requests!
+        if USERDB.MSG_ID_LAST_SNOOZE_NOTIFICATION in userDoc:
+            del userDoc[USERDB.MSG_ID_LAST_SNOOZE_NOTIFICATION]
         # Update DB
         self.couchdb[DATABASES.USERS].save(userDoc)
         if not self.userIsApproved(update.effective_user.id):
@@ -326,18 +330,47 @@ class ABBot:
             text = SYMBOLS.WARNING + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID()) + " hat Benachrichtigungen deaktiviert bis: " + formatTimestampToGermanDate(
                 self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')!'
             text += '\nMit /start siehst du den aktuellen Stand.'
-            self.sendMessageToMultipleUsers(self.getApprovedUsersExceptOne(str(update.effective_user.id)), text)
+            users = self.getApprovedUsersExceptOne(update.effective_user.id)
+            logging.info("Sending messages to " + str(len(users)) + " users...")
+            for userID in users:
+                userDoc = self.getUserDoc(userID)
+                msg = self.sendMessage(userID, text=self.getSnoozedUntilText(True))
+                if msg is not None:
+                    userDoc[USERDB.MSG_ID_LAST_SNOOZE_NOTIFICATION] = msg.message_id
+                    self.couchdb[DATABASES.USERS].save(userDoc)
         else:
             logging.info("User attempted snooze but snooze is already active: " + str(update.effective_user.id))
         return self.botDisplayMenuMain(update, context)
+
+    def getSnoozedUntilText(self, addETA: bool) -> str:
+        text = SYMBOLS.WARNING + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID()) + " hat Benachrichtigungen deaktiviert bis: " + formatTimestampToGermanDate(
+            self.getCurrentGlobalSnoozeTimestamp())
+        if addETA:
+            text += ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')'
+        text += '!'
+        text += '\nMit /start siehst du den aktuellen Stand.'
+        return text
 
     def botUnsnooze(self, update: Update, context: CallbackContext):
         """ Activates notifications for all users. """
         # Save global state
         botDoc = self.getBotDoc()
-        botDoc.pop(BOTDB.TIMESTAMP_SNOOZE_UNTIL)
-        botDoc.pop(BOTDB.MUTED_BY_USER_ID)
+        baseText = ''
+        if BOTDB.TIMESTAMP_SNOOZE_UNTIL in botDoc:
+            baseText = self.getSnoozedUntilText(False)
+            del botDoc[BOTDB.TIMESTAMP_SNOOZE_UNTIL]
+        if BOTDB.MUTED_BY_USER_ID in botDoc:
+            del botDoc[BOTDB.MUTED_BY_USER_ID]
         self.couchdb[DATABASES.BOTSTATE].save(botDoc)
+        users = self.getApprovedUsersExceptOne(update.effective_user.id)
+        logging.info("Editing snooze messages of " + str(len(users)) + " users...")
+        # Edit "snoozed" message of all users for which this still is the last message in their message history with this bot!
+        userTitle = self.getMeaningfulUserTitle(update.effective_user.id)
+        for userID in users:
+            userDoc = self.getUserDoc(userID)
+            if USERDB.MSG_ID_LAST_SNOOZE_NOTIFICATION in userDoc:
+                text = baseText + "\n<b>EDIT\nStummschaltung aufgehoben von: " + userTitle + "</b>"
+                self.editMessage(userID, userDoc[USERDB.MSG_ID_LAST_SNOOZE_NOTIFICATION], text=text)
         return self.botDisplayMenuMain(update, context)
 
     def botApprovalAllow(self, update: Update, context: CallbackContext):
@@ -576,7 +609,7 @@ class ABBot:
             if fieldKey not in channelInfo:
                 logging.info("Detected unconfigured field: " + fieldKey)
                 continue
-            fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(name=channelInfo[fieldKey], triggerValue=sensorUserConfig['trigger'], triggerOperator=sensorUserConfig['operator'], alarmOnlyOnceUntilUntriggered=sensorUserConfig['alarmOnlyOnceUntilUntriggered'])
+            fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(name=channelInfo[fieldKey], triggerValue=sensorUserConfig['trigger'], triggerOperator=sensorUserConfig['operator'], alarmOnlyOnceUntilUntriggered=sensorUserConfig.get('alarmOnlyOnceUntilUntriggered', False))
         alarmDatetime = None
         alarmSensorsNames = []
         alarmSensorsDebugTextStrings = []
@@ -660,10 +693,24 @@ class ABBot:
         for userID in users:
             self.sendMessage(userID, text)
 
-    def sendMessage(self, chat_id: Union[int, str], text: str, reply_markup=None):
+    def sendMessage(self, chat_id: Union[int, str], text: str, reply_markup=None) -> Union[None, Message]:
         try:
-            self.updater.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode='HTML')
+            return self.updater.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode='HTML')
         except BadRequest:
+            pass
+        except Unauthorized:
+            # E.g. user has blocked bot -> Save that so we can remove such users on DB cleanup
+            userDoc = self.getUserDoc(chat_id)
+            if userDoc is not None:
+                userDoc[USERDB.TIMESTAMP_LAST_BLOCKED_BOT_ERROR] = datetime.now().timestamp()
+                self.couchdb[DATABASES.USERS].save(userDoc)
+            pass
+
+    def editMessage(self, chat_id: Union[int, str], message_id: int, text: str) -> Union[None, Message]:
+        try:
+            return self.updater.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, parse_mode='HTML')
+        except BadRequest:
+            traceback.print_exc()
             pass
         except Unauthorized:
             # E.g. user has blocked bot -> Save that so we can remove such users on DB cleanup
