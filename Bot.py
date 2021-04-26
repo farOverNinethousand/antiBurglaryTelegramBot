@@ -207,8 +207,8 @@ class ABBot:
         userDoc[USERDB.FIRST_NAME] = update.effective_user.first_name
         if update.effective_user.last_name is not None:
             userDoc[USERDB.LAST_NAME] = update.effective_user.last_name
-        else:
-            userDoc.pop(USERDB.LAST_NAME)
+        elif USERDB.LAST_NAME in userDoc:
+            del userDoc[USERDB.LAST_NAME]
         if update.effective_user.username is not None:
             userDoc[USERDB.USERNAME] = update.effective_user.username
         else:
