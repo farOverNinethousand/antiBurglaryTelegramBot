@@ -1,12 +1,15 @@
+from typing import Union
+
+
 class Sensor:
 
-    def __init__(self, name: str, triggerValue, triggerOperator: str, alarmOnlyOnceUntilUntriggered: bool = False):
+    def __init__(self, name: str, triggerValue: Union[int, float], triggerOperator: str, alarmOnlyOnceUntilUntriggered: bool = False):
 
         self.name = name
         self.triggerValue = triggerValue
         self.triggerOperator = triggerOperator
         self.alarmOnceOnceUntilUntriggered = alarmOnlyOnceUntilUntriggered
-        self.value = None
+        self.value = -1
 
     def getName(self):
         return self.name
