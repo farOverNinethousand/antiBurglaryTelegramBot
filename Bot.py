@@ -208,11 +208,11 @@ class ABBot:
         if update.effective_user.last_name is not None:
             userDoc[USERDB.LAST_NAME] = update.effective_user.last_name
         else:
-            del userDoc[USERDB.LAST_NAME]
+            userDoc.pop(USERDB.LAST_NAME)
         if update.effective_user.username is not None:
             userDoc[USERDB.USERNAME] = update.effective_user.username
         else:
-            del userDoc[USERDB.USERNAME]
+            userDoc.pop(USERDB.USERNAME)
         # Update DB
         self.couchdb[DATABASES.USERS].save(userDoc)
         if not self.userIsApproved(update.effective_user.id):
@@ -335,10 +335,8 @@ class ABBot:
         """ Activates notifications for all users. """
         # Save global state
         botDoc = self.getBotDoc()
-        if BOTDB.TIMESTAMP_SNOOZE_UNTIL in botDoc:
-            del botDoc[BOTDB.TIMESTAMP_SNOOZE_UNTIL]
-        if BOTDB.MUTED_BY_USER_ID in botDoc:
-            del botDoc[BOTDB.MUTED_BY_USER_ID]
+        botDoc.pop(BOTDB.TIMESTAMP_SNOOZE_UNTIL)
+        botDoc.pop(BOTDB.MUTED_BY_USER_ID)
         self.couchdb[DATABASES.BOTSTATE].save(botDoc)
         return self.botDisplayMenuMain(update, context)
 
