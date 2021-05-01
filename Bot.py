@@ -69,7 +69,7 @@ class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
 
-BOT_VERSION = "0.8.0"
+BOT_VERSION = "0.8.1"
 
 
 class ABBot:
@@ -129,6 +129,7 @@ class ABBot:
                 ],
                 CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT: [
                     CommandHandler('cancel', self.botDisplayMenuMain),
+                    CommandHandler('start', self.botDisplayMenuMain),
                     MessageHandler(Filters.text, self.botDeleteOwnAccount),
                 ],
                 CallbackVars.MENU_ACP: [
@@ -264,7 +265,7 @@ class ABBot:
         acpKeyboard = []
         if len(users) == 0:
             # Edge-case
-            menuText = "<b>Es gibt außer dir noch keine Benutzer!</b>"
+            menuText = "<b>Es gibt außer dir noch keine weiteren Benutzer!</b>"
         else:
             for userIDStr in users:
                 userPrefix = self.getUserRightsPrefix(userIDStr)
@@ -301,8 +302,8 @@ class ABBot:
             # TODO: Add functionality or remove this
             # userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
             menuText += "\nRegistriert am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_REGISTERED])
-            menuText += "\nBestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
             menuText += "\nBestätigt am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_APPROVED])
+            menuText += "\nBestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
             menuText += "\n*Mit Sternchen gekennzeichnete Buttons = Buttons ohne Funktionalität!"
             menuText += "\nLöschen = Benutzer muss sich erneut mit Passwort anmelden und bestätigt werden und kann den Bot ansonsten nicht mehr verwenden."
         userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Löschen', callback_data=CallbackVars.MENU_ACP_ACTION_DELETE_USER + userIDStr)])
@@ -421,7 +422,7 @@ class ABBot:
 
     def notifyUserApproved(self, userID: Union[int, str]) -> None:
         text = SYMBOLS.CONFIRM + "Du wurdest freigeschaltet!"
-        text += "\nMit /start gelangst du in's Hauptmenü."
+        text += "\nMit /start kommst du in Hauptmenü."
         self.sendMessage(userID, text)
 
     def notifyUserDeny(self, userID: Union[int, str]) -> None:
@@ -436,7 +437,7 @@ class ABBot:
             self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet!")
         else:
             text = SYMBOLS.DENY + "Benutzer abgelehnt: " + self.getMeaningfulUserTitle(userIDStr)
-            text += "\nVersehentlich abgelehnt? Mit dem Kommando /start kann der Benutzer eine neue anfrage stellen!"
+            text += "\nVersehentlich einen User abgelehnt? Mit dem Kommando /start kann der Benutzer eine neue Anfrage stellen!"
             self.botEditOrSendNewMessage(update, context, text)
             self.deleteUser(userIDStr)
             self.notifyUserDeny(userIDStr)
@@ -465,12 +466,14 @@ class ABBot:
                 self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
                 # Small "workaround" as first user is basically approved by itself!
                 self.approveUser(str(update.effective_user.id), str(update.effective_user.id))
-                text += "\n<b>Du bist der erste User -> Admin!</b>"
+                text += "\n<b>Gratulation! Du bist der erste User -> Admin!</b>"
             else:
+                text += "\nWarte auf Freischaltung durch einen Admin."
+                text += "\nDu wirst benachrichtigt, sobald dein Account freigeschaltet wurde."
                 self.couchdb[DATABASES.USERS][str(update.effective_user.id)] = userData
                 self.sendUserApprovalRequestToAllAdmins(update.effective_user.id)
             self.sendMessage(update.effective_message.chat_id, text)
-            return self.botDisplayMenuMain(update, context)
+            return CallbackVars.MENU_MAIN
         else:
             # User entered incorrect password
             self.sendMessage(chat_id=update.effective_message.chat_id, text=SYMBOLS.DENY + "Falsches Passwort!")
@@ -510,14 +513,16 @@ class ABBot:
         query.answer()
         text = SYMBOLS.DENY + "<b>Accountlöschung</b>"
         text += "\nAntworte mit deiner Telegram Benutzer-ID <b>" + str(update.effective_user.id) + "</b> um deinen Account zu löschen."
-        text += "\nNach der Löschung wirst du den Bot ohne erneute Bestätigung nicht mehr verwenden können!!"
-        text += "\nAbbruch mit /cancel"
+        text += "\nNach der Löschung wirst du den Bot ohne erneute Passworteingabe und Bestätigung nicht mehr verwenden können!!"
+        text += "\nLöschung abbrechen mit /cancel"
         self.botEditOrSendNewMessage(update, context, text=text)
         return CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT
 
     def botDeleteOwnAccount(self, update: Update, context: CallbackContext):
         if update.message.text != str(update.effective_user.id):
-            self.sendMessage(chat_id=update.effective_user.id, text=SYMBOLS.DENY + "Falsche Antwort!")
+            text = SYMBOLS.DENY + "Falsche Antwort!"
+            text += "\nLöschung abbrechen mit /cancel"
+            self.sendMessage(chat_id=update.effective_user.id, text=text)
             return CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT
         else:
             self.deleteUser(update.effective_user.id)
@@ -535,7 +540,7 @@ class ABBot:
 
     def botSendUserDefinedBroadcast(self, update: Update, context: CallbackContext):
         answerToUser = SYMBOLS.CONFIRM + "Broadcast gesendet!"
-        answerToUser += "\nMit /start kommst du zurück in's Hauptmenü."
+        answerToUser += "\nMit /start kommst du zurück in Hauptmenü."
         self.sendMessage(chat_id=update.effective_message.chat_id, text=answerToUser)
         userMessage = update.message.text
         text = "<b>Broadcast von " + self.getMeaningfulUserTitle(update.effective_user.id) + ":</b>"
