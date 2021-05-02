@@ -302,6 +302,7 @@ class ABBot:
                 userOptions.append([InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
             # TODO: Add functionality or remove this
             # userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
+            menuText += "\nTelegram Benutzer-ID: " + userIDStr
             menuText += "\nRegistriert am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_REGISTERED])
             menuText += "\nBestätigt am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_APPROVED])
             menuText += "\nBestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
