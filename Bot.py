@@ -6,7 +6,7 @@ from typing import Union
 
 import couchdb
 import schedule
-from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
+from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.error import BadRequest, Unauthorized
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
