@@ -92,6 +92,18 @@ thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean  
 Dieser Alarm passiert jeweils nur 1x bis der Sensor nicht mehr getriggert ist. 
    In diesem Beispiel ist es eine Batteriespannung - sobald sie wieder über 11.5 Volt steigt wird dieser Sensor "enttriggert" (naja Schwellwert eben) und es darf ein neuer Alarm kommen, wenn die Spannung wieder abfällt.
    
+# Bot Beschreibung
+```
+Epi Sicherheitssystem
+Anleitung: github.com/farOverNinethousand/antiBurglaryTelegramBot#screenshots--anleitung
+```
+
+# Bot About
+```
+Epi Sicherheitssystem
+Anleitung: github.com/farOverNinethousand/antiBurglaryTelegramBot#screenshots--anleitung
+```
+
 # Bot Commands Liste
 ```
 start - Hauptmenü
