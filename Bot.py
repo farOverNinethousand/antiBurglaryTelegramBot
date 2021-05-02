@@ -6,7 +6,7 @@ from typing import Union
 
 import couchdb
 import schedule
-from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from telegram.error import BadRequest, Unauthorized
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
@@ -63,13 +63,14 @@ class USERDB:
     TIMESTAMP_LAST_TIME_REQUESTED_DSGVO_DATA = 'timestamp_last_time_requested_dsgvo_data'
     TIMESTAMP_LAST_BLOCKED_BOT_ERROR = 'timestamp_last_blocked_bot_error'
     MSG_ID_LAST_SNOOZE_NOTIFICATION = 'msg_id_last_snooze_notification'
+    MSG_IDS_APPROVAL_REQUESTS = 'msg_ids_approval_requests'
 
 
 class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
 
-BOT_VERSION = "0.8.1"
+BOT_VERSION = "0.8.2"
 
 
 class ABBot:
@@ -261,7 +262,7 @@ class ABBot:
         query = update.callback_query
         query.answer()
         self.adminOrException(update.effective_user.id)
-        users = self.getAllUsersExceptOne(str(update.effective_user.id))
+        users = self.getAllUsersExceptOne(update.effective_user.id)
         acpKeyboard = []
         if len(users) == 0:
             # Edge-case
@@ -271,7 +272,7 @@ class ABBot:
                 userPrefix = self.getUserRightsPrefix(userIDStr)
                 acpKeyboard.append([InlineKeyboardButton(userPrefix + self.getMeaningfulUserTitle(userIDStr), callback_data=CallbackVars.MENU_ACP_ACTIONS + userIDStr)])
             menuText = "<b>Benutzerliste:</b>"
-            menuText += "\nBenutzer werden nicht über Änderungen informiert!"
+            menuText += "\nBenutzer werden nicht zwangsläufig über Änderungen informiert!"
             menuText += "\n<b>Obacht</b>: Alle Aktionen passieren sofort und ohne Notwendigkeit einer Bestätigung!"
             menuText += "\n" + SYMBOLS.STAR + " = Admin"
             menuText += "\n" + SYMBOLS.WARNING + " = Unbestätigter User"
@@ -304,7 +305,6 @@ class ABBot:
             menuText += "\nRegistriert am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_REGISTERED])
             menuText += "\nBestätigt am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_APPROVED])
             menuText += "\nBestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
-            menuText += "\n*Mit Sternchen gekennzeichnete Buttons = Buttons ohne Funktionalität!"
             menuText += "\nLöschen = Benutzer muss sich erneut mit Passwort anmelden und bestätigt werden und kann den Bot ansonsten nicht mehr verwenden."
         userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Löschen', callback_data=CallbackVars.MENU_ACP_ACTION_DELETE_USER + userIDStr)])
         userOptions.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_ACP)])
@@ -380,11 +380,24 @@ class ABBot:
         userIDStr = query.data.replace(CallbackVars.APPROVE_USER, "")
         userDoc = self.getUserDoc(userIDStr)
         if userDoc is None or userDoc.get(USERDB.IS_APPROVED, False):
-            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet!")
+            # This should never happen!
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits bearbeitet!")
         else:
             self.botEditOrSendNewMessage(update, context, SYMBOLS.CONFIRM + "Benutzer bestätigt: " + self.getMeaningfulUserTitle(userIDStr))
             self.approveUser(userIDStr, str(update.effective_user.id))
-            self.notifyUserApproved(userIDStr)
+        return ConversationHandler.END
+
+    def botApprovalDeny(self, update: Update, context: CallbackContext):
+        query = update.callback_query
+        query.answer()
+        userIDStr = query.data.replace(CallbackVars.DECLINE_USER, "")
+        userDoc = self.getUserDoc(userIDStr)
+        if userDoc is None:
+            # This should never happen
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits Admin bearbeitet!")
+        else:
+            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Benutzer abgelehnt: " + self.getMeaningfulUserTitle(userIDStr))
+            self.denyUser(userIDStr, update.effective_user.id)
         return ConversationHandler.END
 
     def botAcpApprovalAllow(self, update: Update, context: CallbackContext):
@@ -405,43 +418,78 @@ class ABBot:
         else:
             return ''
 
-    def approveUser(self, userID, approvedByUserID: Union[int, str]) -> None:
+    def approveUser(self, userID: Union[int, str], adminUserID: Union[int, str]) -> None:
         """
         :param userID: ID of the user to approve
-        :param approvedByUserID: ID of the user that wants to approve the other user.
+        :param adminUserID: ID of the user that has approved the other user.
         :return: None
         """
+        userID = str(userID)
         userDoc = self.getUserDoc(userID)
         if userDoc is None:
             logging.warning("User approval failed: userID doesn't exist in DB")
             return
         userDoc[USERDB.IS_APPROVED] = True
-        userDoc[USERDB.APPROVED_BY] = approvedByUserID
+        userDoc[USERDB.APPROVED_BY] = adminUserID
         userDoc[USERDB.TIMESTAMP_APPROVED] = datetime.now().timestamp()
-        self.couchdb[DATABASES.USERS].save(userDoc)
-
-    def notifyUserApproved(self, userID: Union[int, str]) -> None:
+        # Inform user that he has been approved
         text = SYMBOLS.CONFIRM + "Du wurdest freigeschaltet!"
         text += "\nMit /start kommst du in Hauptmenü."
         self.sendMessage(userID, text)
+        # Update DB
+        self.couchdb[DATABASES.USERS].save(userDoc)
+        # Edit approval request messages of all other admins
+        allOtherAdmins = self.getAdminsExceptOne(adminUserID)
+        text = SYMBOLS.CONFIRM + self.getMeaningfulUserTitle(userID) + " wurde freigeschaltet von " + self.getMeaningfulUserTitle(adminUserID)
+        for adminUserIDTmp in allOtherAdmins:
+            adminDoc = self.getUserDoc(adminUserIDTmp)
+            approvalRequestsMessageIDs = adminDoc.get(USERDB.MSG_IDS_APPROVAL_REQUESTS, {})
+            if userID not in approvalRequestsMessageIDs:
+                continue
+            thisUserApprovalMessageID = approvalRequestsMessageIDs[userID]
+            # Remove buttons from message
+            self.updater.bot.editMessageReplyMarkup(chat_id=adminUserIDTmp, message_id=thisUserApprovalMessageID, reply_markup=None)
+            # Edit message accordingly
+            self.editMessage(adminUserIDTmp, thisUserApprovalMessageID, text=text)
+            # Update DB
+            del approvalRequestsMessageIDs[userID]
+            self.couchdb[DATABASES.USERS].save(adminDoc)
 
-    def notifyUserDeny(self, userID: Union[int, str]) -> None:
-        self.sendMessage(userID, SYMBOLS.DENY + "Du wurdest abgelehnt!")
-
-    def botApprovalDeny(self, update: Update, context: CallbackContext):
-        query = update.callback_query
-        query.answer()
-        userIDStr = query.data.replace(CallbackVars.DECLINE_USER, "")
-        userDoc = self.getUserDoc(userIDStr)
+    def denyUser(self, userID: Union[int, str], adminUserID: Union[int, str]) -> None:
+        """
+        Denies- and deletes a user.
+        :param userID: ID of the user to approve
+        :param adminUserID: ID of the user that has approved the other user.
+        :return: None
+        """
+        userID = str(userID)
+        userDoc = self.getUserDoc(userID)
         if userDoc is None:
-            self.botEditOrSendNewMessage(update, context, SYMBOLS.DENY + "Anfrage bereits von anderem Admin bearbeitet!")
+            logging.warning("User deny failed: userID doesn't exist in DB")
+            return
+        # Inform user that he has been denied
+        if self.userIsApproved(userID):
+            text = SYMBOLS.DENY + "Du wurdest gelöscht!"
         else:
-            text = SYMBOLS.DENY + "Benutzer abgelehnt: " + self.getMeaningfulUserTitle(userIDStr)
-            text += "\nVersehentlich einen User abgelehnt? Mit dem Kommando /start kann der Benutzer eine neue Anfrage stellen!"
-            self.botEditOrSendNewMessage(update, context, text)
-            self.deleteUser(userIDStr)
-            self.notifyUserDeny(userIDStr)
-        return ConversationHandler.END
+            text = SYMBOLS.DENY + "Du wurdest abgelehnt!"
+        self.sendMessage(userID, text)
+        # Edit approval request messages of all other admins
+        allOtherAdmins = self.getAdminsExceptOne(adminUserID)
+        text = SYMBOLS.DENY + self.getMeaningfulUserTitle(userID) + " wurde abgelehnt/gelöscht von " + self.getMeaningfulUserTitle(adminUserID)
+        for adminUserIDTmp in allOtherAdmins:
+            adminDoc = self.getUserDoc(adminUserIDTmp)
+            approvalRequestsMessageIDs = adminDoc.get(USERDB.MSG_IDS_APPROVAL_REQUESTS, {})
+            if userID not in approvalRequestsMessageIDs:
+                continue
+            thisUserApprovalMessageID = approvalRequestsMessageIDs[userID]
+            # Remove buttons from message
+            self.updater.bot.editMessageReplyMarkup(chat_id=adminUserIDTmp, message_id=thisUserApprovalMessageID, reply_markup=None)
+            # Edit message accordingly
+            self.editMessage(adminUserIDTmp, thisUserApprovalMessageID, text=text)
+            # Update DB
+            del approvalRequestsMessageIDs[userID]
+            self.couchdb[DATABASES.USERS].save(adminDoc)
+        del self.couchdb[DATABASES.USERS][userID]
 
     def userExistsInDB(self, userID: Union[int, str]) -> bool:
         return str(userID) in self.couchdb[DATABASES.USERS]
@@ -561,25 +609,12 @@ class ABBot:
             context.bot.send_message(chat_id=update.effective_message.chat_id, reply_markup=reply_markup, text=text,
                                      parse_mode='HTML', disable_web_page_preview=disable_web_page_preview)
 
-    def sendUserApprovalRequests(self) -> None:
-        usersToApprove = {}
-        userDB = self.couchdb[DATABASES.USERS]
-        for userID in userDB:
-            userDoc = userDB[userID]
-            if USERDB.IS_APPROVED not in userDoc and not userDoc.get(USERDB.APPROVAL_REQUEST_HAS_BEEN_SENT, False):
-                usersToApprove[userID] = userDoc
-        if len(usersToApprove) > 0:
-            logging.info("Sending out approval requests for users: " + str(len(usersToApprove)))
-            index = 0
-            for userID, userDoc in usersToApprove.items():
-                print("Sending notification " + str((index + 1)) + " / " + str(len(usersToApprove)))
-                self.sendUserApprovalRequestToAllAdmins(userID)
-
     def sendUserApprovalRequestToAllAdmins(self, userID: Union[int, str]) -> None:
         adminUsers = self.getAdmins()
         index = 0
         userDB = self.couchdb[DATABASES.USERS]
-        userDoc = userDB[str(userID)]
+        userID = str(userID)
+        userDoc = userDB[userID]
         menuText = 'Benutzer erbittet Freischaltung: ' + self.getMeaningfulUserTitle(userID)
         approvalKeyboard = [
             [InlineKeyboardButton(SYMBOLS.CONFIRM + 'Annehmen', callback_data=CallbackVars.APPROVE_USER + str(userID)),
@@ -588,7 +623,13 @@ class ABBot:
         reply_markup = InlineKeyboardMarkup(approvalKeyboard)
         for adminUserID in adminUsers:
             print("Sending approval requests to admin " + str((index + 1)) + " / " + str(len(adminUsers)))
-            self.sendMessage(adminUserID, menuText, reply_markup=reply_markup)
+            approvalMsg = self.sendMessage(adminUserID, menuText, reply_markup=reply_markup)
+            # Update DB and save that messageID -> We need that later!
+            adminUserDoc = adminUsers[adminUserID]
+            approvalMessageIDs = adminUserDoc.get("", {})
+            approvalMessageIDs[userID] = approvalMsg.message_id
+            adminUserDoc[USERDB.MSG_IDS_APPROVAL_REQUESTS] = approvalMessageIDs
+            userDB.save(adminUserDoc)
             index += 1
         userDoc[USERDB.APPROVAL_REQUEST_HAS_BEEN_SENT] = True
         userDB.save(userDoc)
@@ -751,6 +792,20 @@ class ABBot:
                 admins[userID] = userDoc
         return admins
 
+    def getAdminsExceptOne(self, ignoreUserID: Union[int, str]) -> dict:
+        """ Returns approved users and admins. """
+        users = {}
+        userDB = self.couchdb[DATABASES.USERS]
+        ignoreUserID = str(ignoreUserID)
+        for userID in userDB:
+            if userID == ignoreUserID:
+                continue
+            elif not self.userIsAdmin(userID):  # Skip all non-admins
+                continue
+            userDoc = userDB[userID]
+            users[userID] = userDoc
+        return users
+
     def getApprovedUsers(self) -> dict:
         """ Returns approved users and admins. """
         users = {}
@@ -818,7 +873,7 @@ class ABBot:
         query.answer()
         self.adminOrException(update.effective_user.id)
         userIDStr = query.data.replace(CallbackVars.MENU_ACP_ACTION_DELETE_USER, "")
-        self.deleteUser(userIDStr)
+        self.denyUser(userIDStr, update.effective_user.id)
         return self.botAcpDisplayUserList(update, context)
 
     # def getApprovedUnmutedUsers(self) -> dict:
@@ -850,7 +905,6 @@ class ABBot:
 
     def errorAdminRightsRequired(self) -> None:
         raise BotException(SYMBOLS.WARNING + "Nur Admins dürfen diese Aktion ausführen!")
-
 
 if __name__ == '__main__':
     bot = ABBot()
