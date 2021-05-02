@@ -10,18 +10,24 @@ Arduino + Sensors + thingspeak.com API + Telegram Bot
 Überwachung eines privaten Waldgrundstückes.
 
 # Screenshots / Anleitung  
+1. Bot anschreiben, Passwort eingeben und auf Bestätigung warten:  
+![Registrierung](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_0.png "Registrierung")  
+2. Bot verwenden:  
 Hauptmenü (Befehl `/start`) - Alarme aktiv:  
 ![Hauptmenü](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_1.png "Hauptmenü")  
 Mit den "X Stunden" Buttons kannst du Benachrichtigungen/Alarme für alle Bot-Benutzer deaktivieren.  
-Hauptmenü (Befehl `/start`) - Alarme inaktiv:
-
+Hauptmenü (Befehl `/start`) - Alarme inaktiv:  
+![Hauptmenü2](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_1.1.png "Hauptmenü2")  
+Wurden Alarme deaktiviert, ändert sich das Menü und man kann sie jederzeit wieder aktivieren.  
 ACP (**A**dmin**C**ontrol**P**anel)  Userliste  
 ![AdminControlPanel](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_2.png "AdminControlPanel")  
 ACP (**A**dmin**C**ontrol**P**anel)  User Aktionen  
 ![AdminControlPanel User Aktionen](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_3.png "AdminControlPanel User Aktionen")  
+Admins sollten wissen was sie tun daher gibt es keine Anleitung für diesen Teil.
 
 # TODOs
 * Irgendwas findet man immer :D
+* Refactoring der Alarm Funktion
 
 # Installation
 1. ``git clone diesesProjekt``
