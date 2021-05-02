@@ -70,7 +70,7 @@ class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
 
-BOT_VERSION = "0.8.2"
+BOT_VERSION = "0.8.3"
 
 
 class ABBot:
@@ -214,7 +214,7 @@ class ABBot:
             del userDoc[USERDB.LAST_NAME]
         if update.effective_user.username is not None:
             userDoc[USERDB.USERNAME] = update.effective_user.username
-        else:
+        elif USERDB.USERNAME in userDoc:
             del userDoc[USERDB.USERNAME]
         # User has used bot in the meantime so he won't pay attention to that old "snoozed by..." message -> Remove this property from DB in order to save http requests!
         if USERDB.MSG_ID_LAST_SNOOZE_NOTIFICATION in userDoc:
