@@ -9,9 +9,12 @@ Arduino + Sensors + thingspeak.com API + Telegram Bot
 ## Wo kam dieses Projekt zum Einsatz?
 Überwachung eines privaten Waldgrundstückes.
 
-# Screenshots  
-Hauptmenü:  
+# Screenshots / Anleitung  
+Hauptmenü (Befehl `/start`) - Alarme aktiv:  
 ![Hauptmenü](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_1.png "Hauptmenü")  
+Mit den "X Stunden" Buttons kannst du Benachrichtigungen/Alarme für alle Bot-Benutzer deaktivieren.  
+Hauptmenü (Befehl `/start`) - Alarme inaktiv:
+
 ACP (**A**dmin**C**ontrol**P**anel)  Userliste  
 ![AdminControlPanel](https://raw.githubusercontent.com/farOverNinethousand/antiBurglaryTelegramBot/main/Screenshots/Screen_2.png "AdminControlPanel")  
 ACP (**A**dmin**C**ontrol**P**anel)  User Aktionen  

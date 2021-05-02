@@ -237,7 +237,7 @@ class ABBot:
                 menuText += '\nVon: ' + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID())
                 mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
-                menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen abschalten.'
+                menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen (Alarme) abschalten.'
                 menuText += '\nAlle Bot User werden benachrichtigt wenn du einen der Snooze-Buttons drückst also lass\' bitte deinen Spieltrieb beiseite!'
                 mainMenuKeyboard.append([InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS + '1'),
                                          InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS + '12')])
@@ -435,7 +435,7 @@ class ABBot:
         userDoc[USERDB.TIMESTAMP_APPROVED] = datetime.now().timestamp()
         # Inform user that he has been approved
         text = SYMBOLS.CONFIRM + "Du wurdest freigeschaltet!"
-        text += "\nMit /start kommst du in Hauptmenü."
+        text += "\nMit /start kommst du in das Hauptmenü."
         self.sendMessage(userID, text)
         # Update DB
         self.couchdb[DATABASES.USERS].save(userDoc)
