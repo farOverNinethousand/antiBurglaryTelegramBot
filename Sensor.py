@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Union
 
 
@@ -10,9 +11,24 @@ class Sensor:
         self.triggerOperator = triggerOperator
         self.alarmOnceOnceUntilUntriggered = alarmOnlyOnceUntilUntriggered
         self.value = -1
+        self.lastTimeTriggered = -1
 
     def getName(self):
         return self.name
+
+    def getTriggeredText(self):
+        """ E.g. "Door open" """
+        return None
+
+    def getNotTriggeredText(self):
+        """ E.g. "Door closed" """
+        return None
+
+    def getStatusText(self):
+        if self.isTriggered():
+            return self.getTriggeredText()
+        else:
+            return self.getNotTriggeredText()
 
     def isTriggered(self) -> bool:
         # TODO: Add support for more operators
@@ -29,6 +45,8 @@ class Sensor:
 
     def setValue(self, value):
         self.value = value
+        if self.isTriggered():
+            self.lastTimeTriggered = datetime.now().timestamp()
 
     def getValue(self):
         return self.value
