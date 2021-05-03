@@ -378,6 +378,7 @@ class ABBot:
     def botApprovalAllow(self, update: Update, context: CallbackContext):
         query = update.callback_query
         query.answer()
+        self.adminOrException(update.effective_user.id)
         userIDStr = query.data.replace(CallbackVars.APPROVE_USER, "")
         userDoc = self.getUserDoc(userIDStr)
         if userDoc is None or userDoc.get(USERDB.IS_APPROVED, False):
@@ -391,6 +392,7 @@ class ABBot:
     def botApprovalDeny(self, update: Update, context: CallbackContext):
         query = update.callback_query
         query.answer()
+        self.adminOrException(update.effective_user.id)
         userIDStr = query.data.replace(CallbackVars.DECLINE_USER, "")
         userDoc = self.getUserDoc(userIDStr)
         if userDoc is None:
@@ -448,8 +450,6 @@ class ABBot:
             if userID not in approvalRequestsMessageIDs:
                 continue
             thisUserApprovalMessageID = approvalRequestsMessageIDs[userID]
-            # Remove buttons from message
-            self.updater.bot.editMessageReplyMarkup(chat_id=adminUserIDTmp, message_id=thisUserApprovalMessageID, reply_markup=None)
             # Edit message accordingly
             self.editMessage(adminUserIDTmp, thisUserApprovalMessageID, text=text)
             # Update DB
@@ -483,8 +483,6 @@ class ABBot:
             if userID not in approvalRequestsMessageIDs:
                 continue
             thisUserApprovalMessageID = approvalRequestsMessageIDs[userID]
-            # Remove buttons from message
-            self.updater.bot.editMessageReplyMarkup(chat_id=adminUserIDTmp, message_id=thisUserApprovalMessageID, reply_markup=None)
             # Edit message accordingly
             self.editMessage(adminUserIDTmp, thisUserApprovalMessageID, text=text)
             # Update DB

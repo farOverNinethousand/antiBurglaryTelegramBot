@@ -10,7 +10,7 @@ class Sensor:
         self.triggerValue = triggerValue
         self.triggerOperator = triggerOperator
         self.alarmOnceOnceUntilUntriggered = alarmOnlyOnceUntilUntriggered
-        self.value = -1
+        self.value = None
         self.lastTimeTriggered = -1
 
     def getName(self):
@@ -32,6 +32,8 @@ class Sensor:
 
     def isTriggered(self) -> bool:
         # TODO: Add support for more operators
+        if self.value is None:  # No value set yet -> Not triggered
+            return False
         if self.triggerOperator == 'LESS':
             return self.value < self.triggerValue
         elif self.triggerOperator == 'MORE':
@@ -42,6 +44,10 @@ class Sensor:
 
     def isAlarmOnlyOnceUntilUntriggered(self) -> bool:
         return self.alarmOnceOnceUntilUntriggered
+
+    def setName(self, sensorName: str):
+        """ Set name of this sensor. """
+        self.name = sensorName
 
     def setValue(self, value):
         self.value = value

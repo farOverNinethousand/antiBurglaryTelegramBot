@@ -12,12 +12,19 @@ class AlarmSystem:
 
     def __init__(self, config: dict):
         self.cfg = config
-        self.lastAlarmSentTimestamp = -1
+        self.lastSensorAlarmSentTimestamp = -1
+        self.sensorAlarmIntervalSeconds = 60
         self.lastEntryIDChangeTimestamp = -1
-        self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = -1
-        self.lastSensorUpdateDatetime = datetime.now()
-        self.lastFieldIDToSensorsMapping = {}
-        self.noDataWarningIntervalSeconds = 600
+        self.lastSensorUpdateServersideDatetime = datetime.now()
+        # Init sensors we want to check later
+        self.sensors = {}
+        for fieldIDStr, sensorUserConfig in self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING].items():
+            self.sensors[int(fieldIDStr)] = Sensor(name=sensorUserConfig['name'], triggerValue=sensorUserConfig['trigger'],
+                                                   triggerOperator=sensorUserConfig['operator'],
+                                                   alarmOnlyOnceUntilUntriggered=sensorUserConfig.get('alarmOnlyOnceUntilUntriggered', False))
+        # Vars for "no data" warning
+        self.noDataAlarmIntervalSeconds = 600
+        self.lastNoNewSensorDataAvailableAlarmSentTimestamp = -1
         self.alarms = []
         self.lastEntryID = -1
 
@@ -32,8 +39,11 @@ class AlarmSystem:
         # TODO
         return self.alarms
 
-    def setNoDataWarningIntervalMinutes(self, minutes: int):
-        self.noDataWarningIntervalSeconds = minutes * 60
+    def setAlarmIntervalNoData(self, minutes: int):
+        self.noDataAlarmIntervalSeconds = minutes * 60
+
+    def setAlarmIntervalSensors(self, minutes: int):
+        self.sensorAlarmIntervalSeconds = minutes * 60
 
     def updateSensorStates(self):
         """ Updates sensor states and saves/sets resulting alarms """
@@ -48,6 +58,16 @@ class AlarmSystem:
         if self.lastEntryID == -1:
             # E.g. first time fetching data
             self.lastEntryID = currentLastEntryID
+        elif currentLastEntryID == self.lastEntryID:
+            logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
+                self.lastSensorUpdateServersideDatetime) + " [" + str(self.lastEntryID) + "]")
+            if datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= self.noDataAlarmIntervalSeconds:
+                # Check if our alarm system maybe hasn't been responding for a long amount of time
+                lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
+                logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
+                if datetime.now().timestamp() - self.lastNoNewSensorDataAvailableAlarmSentTimestamp > 60 * 60:
+                    self.alarms.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>")
+            return
         elif currentLastEntryID < self.lastEntryID:
             # Rare case
             checkOnlyHigherEntryIDs = False
@@ -55,25 +75,21 @@ class AlarmSystem:
         else:
             logging.info("Checking all entries > " + str(self.lastEntryID))
             pass
-        fieldIDToSensorMapping = {}
-        for fieldIDStr, sensorUserConfig in self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING].items():
-            fieldKey = 'field' + fieldIDStr
-            if fieldKey not in channelInfo:
-                logging.info("Detected unconfigured field: " + fieldKey)
-                continue
-            fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(name=channelInfo[fieldKey], triggerValue=sensorUserConfig['trigger'], triggerOperator=sensorUserConfig['operator'],
-                                                             alarmOnlyOnceUntilUntriggered=sensorUserConfig.get('alarmOnlyOnceUntilUntriggered', False))
         alarmDatetime = None
+        triggeredSensors = []
         alarmSensorsNames = []
-        alarmSensorsDebugTextStrings = []
         for feed in sensorResults:
             # Check all fields for which we got alarm state mapping
             entryID = feed['entry_id']
             if entryID <= self.lastEntryID and checkOnlyHigherEntryIDs:
                 # Ignore entries we've checked before
                 continue
-            for fieldID, sensor in fieldIDToSensorMapping.items():
+            for fieldID, sensor in self.sensors.items():
                 fieldKey = 'field' + str(fieldID)
+                if fieldKey not in feed:
+                    logging.warning("One of your configured sensors is not available in feed: " + fieldKey + " | " + sensor.getName())
+                    continue
+                sensorWasTriggeredBefore = sensor.isTriggered()
                 # 2021-04-18: Thingspeak sends all values as String though we expect float or int
                 fieldValueRaw = feed[fieldKey]
                 if '.' in fieldValueRaw:
@@ -81,39 +97,28 @@ class AlarmSystem:
                 else:
                     sensor.setValue(int(fieldValueRaw))
                 thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
-                self.lastSensorUpdateDatetime = thisDatetime
+                self.lastSensorUpdateServersideDatetime = thisDatetime
                 # Check if alarm state is given
                 if sensor.isTriggered():
-                    if sensor.isAlarmOnlyOnceUntilUntriggered() and fieldID in self.lastFieldIDToSensorsMapping and self.lastFieldIDToSensorsMapping[fieldID].isTriggered():
+                    if sensor.isAlarmOnlyOnceUntilUntriggered() and sensorWasTriggeredBefore:
                         # print("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
                         logging.info("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
                         continue
-                    alarmDatetime = thisDatetime
                     if sensor.getName() not in alarmSensorsNames:
                         alarmSensorsNames.append(sensor.getName())
-                        alarmSensorsDebugTextStrings.append(sensor.getName() + "(" + fieldKey + ")")
+                        triggeredSensors.append(sensor)
+                        alarmDatetime = thisDatetime
 
-        if currentLastEntryID == self.lastEntryID:
-            logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateDatetime) + " [" + str(self.lastEntryID) + "]")
-            if datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= self.noDataWarningIntervalSeconds:
-                # Check if our alarm system maybe hasn't been responding for a long amount of time
-                lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
-                logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
-                if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60:
-                    self.alarms.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>")
-            return
-        elif len(alarmSensorsNames) > 0:
+        if len(alarmSensorsNames) > 0:
             print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
-            if datetime.now().timestamp() < (self.lastAlarmSentTimestamp + 1 * 60):
+            if datetime.now().timestamp() < (self.lastSensorAlarmSentTimestamp + self.sensorAlarmIntervalSeconds):
                 # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
                 logging.info("Not sending alarms because: Flood protection")
             else:
                 logging.warning("Sending out alarms...")
                 # text = "<b>Alarm! " + channelInfo['name'] + "</b>"
                 self.alarms.append('\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames))
-                self.lastAlarmSentTimestamp = datetime.now().timestamp()
+                self.lastSensorAlarmSentTimestamp = datetime.now().timestamp()
 
-        self.lastFieldIDToSensorsMapping = fieldIDToSensorMapping.copy()
         self.lastEntryID = currentLastEntryID
         self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
