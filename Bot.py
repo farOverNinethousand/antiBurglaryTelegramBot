@@ -11,6 +11,7 @@ from telegram.error import BadRequest, Unauthorized
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
 
+from AlarmSystem import AlarmSystem
 from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatDatetimeToGermanDate, formatTimestampToGermanDateWithSeconds, formatTimestampToGermanDate, BotException
 from hyper import HTTP20Connection  # we're using hyper instead of requests because of its' HTTP/2.0 capability
 from json import loads
@@ -70,7 +71,8 @@ class BOTDB:
     TIMESTAMP_SNOOZE_UNTIL = 'timestamp_snooze_until'
     MUTED_BY_USER_ID = 'muted_by'
 
-BOT_VERSION = "0.8.3"
+
+BOT_VERSION = "0.8.4"
 
 
 class ABBot:
@@ -81,6 +83,9 @@ class ABBot:
             raise Exception('Broken config')
         # Init CouchDB
         self.couchdb = couchdb.Server(self.cfg[Config.DB_URL])
+        self.alarmsystem = AlarmSystem(self.cfg)
+        # Init that
+        self.alarmsystem.updateAlarms()
         # Create required DBs
         if DATABASES.USERS not in self.couchdb:
             self.couchdb.create(DATABASES.USERS)
@@ -88,13 +93,6 @@ class ABBot:
             self.couchdb.create(DATABASES.BOTSTATE)
             # Store everything in one doc
             self.couchdb[DATABASES.BOTSTATE][DATABASES.BOTSTATE] = {}
-        # Init other fields
-        self.lastEntryID = -1
-        self.lastAlarmSentTimestamp = -1
-        self.lastEntryIDChangeTimestamp = -1
-        self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = -1
-        self.lastSensorUpdateDatetime = datetime.now()
-        self.lastFieldIDToSensorsMapping = {}
         # Now comes all the bot related stuff
         self.updater = Updater(self.cfg[Config.BOT_TOKEN], request_kwargs={"read_timeout": 30})
         dispatcher = self.updater.dispatcher
@@ -114,9 +112,11 @@ class ABBot:
                     CallbackQueryHandler(self.botSendUserDefinedBroadcastSTART, pattern='^' + CallbackVars.SEND_BROADCAST + '$'),
                     CallbackQueryHandler(self.botDisplaySettings, pattern='^' + CallbackVars.MENU_SETTINGS + '$'),
                     CallbackQueryHandler(self.botAcpDisplayUserList, pattern='^' + CallbackVars.MENU_ACP + '$'),
+                    MessageHandler(filters=Filters.text and (~Filters.command), callback=self.botWTF),
                 ],
                 CallbackVars.SEND_BROADCAST: [
-                    CommandHandler('cancel', self.botDisplayMenuMain),
+                    # Go back to main menu if user enters ANY command.
+                    MessageHandler(Filters.command, self.botDisplayMenuMain),
                     MessageHandler(Filters.text, self.botSendUserDefinedBroadcast),
                 ],
                 CallbackVars.MENU_SETTINGS: [
@@ -232,9 +232,12 @@ class ABBot:
             menuText = 'Hallo ' + update.effective_user.first_name + ','
             mainMenuKeyboard = []
             if self.getCurrentGlobalSnoozeTimestamp() > datetime.now().timestamp():
+                userWhoSnoozed = self.getCurrentGlobalSnoozeUserID()
                 menuText += '\n<b>' + SYMBOLS.WARNING + 'Benachrichtigungen deaktiviert bis: ' + formatTimestampToGermanDate(
                     self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')</b>'
-                menuText += '\nVon: ' + self.getMeaningfulUserTitle(self.getCurrentGlobalSnoozeUserID())
+                menuText += '\nVon: ' + self.getMeaningfulUserTitleInContext(userWhoSnoozed, update.effective_user.id)
+                if str(userWhoSnoozed) == str(update.effective_user.id):
+                    menuText += "\n<b>Denk bitte dran, Bot Alarme und die Kamera beim Verlassen der Hütte wieder zu aktivieren!</b>"
                 mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
                 menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen (Alarme) abschalten.'
@@ -245,13 +248,12 @@ class ABBot:
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.MEGAPHONE + 'Broadcast', callback_data=CallbackVars.SEND_BROADCAST)])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.WRENCH + 'Einstellungen', callback_data=CallbackVars.MENU_SETTINGS)])
+            menuText += "\nLetzte Sensordaten:"
+            for sensor in list(self.alarmsystem.sensors.values()):
+                menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue())
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
-                if len(self.lastFieldIDToSensorsMapping) > 0:
-                    menuText += "\nLetzte Sensordaten:"
-                    for sensorID, sensor in self.lastFieldIDToSensorsMapping.items():
-                        menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue())
                 mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.FLASH + 'ACP', callback_data=CallbackVars.MENU_ACP)])
             menuText += "\n\n<i>antiBurglaryTelegramBot " + BOT_VERSION + " made with " + SYMBOLS.HEART + " and " + SYMBOLS.BEERS + " for Epi (2021)</i>"
             self.botEditOrSendNewMessage(update, context, menuText,
@@ -565,6 +567,15 @@ class ABBot:
         self.botEditOrSendNewMessage(update, context, text=text)
         return CallbackVars.MENU_SETTINGS_DELETE_ACCOUNT
 
+    def botWTF(self, update: Update, context: CallbackContext):
+        """
+        Execute this whenever user enters nonsense.
+        """
+        text = SYMBOLS.WARNING + "<b>Manchmal sitzt das Problem vor dem Bildschirm!</b>"
+        text += "\nLeider bin ich nur ein Bot und kann mit deiner letzten Eingabe nichts anfangen :("
+        self.sendMessage(chat_id=update.effective_user.id, text=text)
+        return CallbackVars.MENU_MAIN
+
     def botDeleteOwnAccount(self, update: Update, context: CallbackContext):
         if update.message.text != str(update.effective_user.id):
             text = SYMBOLS.DENY + "Falsche Antwort!"
@@ -581,18 +592,18 @@ class ABBot:
         query.answer()
         text = SYMBOLS.MEGAPHONE + "Gib den zu sendenden Text ein."
         text += "\nDieser wird ohne weitere Bestätigung an alle Bot User geschickt!"
-        text += "\nAbbruch mit /cancel!"
+        text += "\nZurück ins Hauptmenü mit /start!"
         self.botEditOrSendNewMessage(update, context, text)
         return CallbackVars.SEND_BROADCAST
 
     def botSendUserDefinedBroadcast(self, update: Update, context: CallbackContext):
-        answerToUser = SYMBOLS.CONFIRM + "Broadcast gesendet!"
+        recipients = self.getApprovedUsersExceptOne(update.effective_user.id)
+        answerToUser = SYMBOLS.CONFIRM + "Nachricht an alle " + str(len(recipients)) + " Bot Nutzer gesendet gesendet!"
         answerToUser += "\nMit /start kommst du zurück in Hauptmenü."
         self.sendMessage(chat_id=update.effective_message.chat_id, text=answerToUser)
         userMessage = update.message.text
         text = "<b>Broadcast von " + self.getMeaningfulUserTitle(update.effective_user.id) + ":</b>"
         text += "\n" + userMessage
-        recipients = self.getApprovedUsersExceptOne(update.effective_user.id)
         self.sendMessageToMultipleUsers(recipients, text)
         userDoc = self.getUserDoc(update.effective_user.id)
         userDoc[USERDB.TIMESTAMP_LAST_BROADCAST_SENT] = datetime.now().timestamp()
@@ -634,91 +645,13 @@ class ABBot:
         userDB.save(userDoc)
 
     def sendAlarmNotifications(self):
-        # https://community.thingspeak.com/documentation%20.../api/
-        conn = HTTP20Connection('api.thingspeak.com')
-        conn.request("GET", '/channels/' + str(self.cfg[Config.THINGSPEAK_CHANNEL]) + '/feed.json?key=' + self.cfg[Config.THINGSPEAK_READ_APIKEY] + '&offset=1')
-        apiResult = loads(conn.get_response().read())
-        channelInfo = apiResult['channel']
-        sensorResults = apiResult['feeds']
-        currentLastEntryID = channelInfo['last_entry_id']
-        # Most of all times we want to check only new entries but if e.g. the channel gets reset we need to check entries lower than our last saved number!
-        checkOnlyHigherEntryIDs = True
-        if currentLastEntryID < self.lastEntryID:
-            # Rare case
-            checkOnlyHigherEntryIDs = False
-            logging.info("Thingspeak channel has been reset(?) -> Checking ALL entries")
-        else:
-            # logging.info("Checking all entries > " + str(self.lastEntryID))
-            pass
-        fieldIDToSensorMapping = {}
-        for fieldIDStr, sensorUserConfig in self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING].items():
-            fieldKey = 'field' + fieldIDStr
-            if fieldKey not in channelInfo:
-                logging.info("Detected unconfigured field: " + fieldKey)
-                continue
-            fieldIDToSensorMapping[int(fieldIDStr)] = Sensor(name=channelInfo[fieldKey], triggerValue=sensorUserConfig['trigger'], triggerOperator=sensorUserConfig['operator'], alarmOnlyOnceUntilUntriggered=sensorUserConfig.get('alarmOnlyOnceUntilUntriggered', False))
-        alarmDatetime = None
-        alarmSensorsNames = []
-        alarmSensorsDebugTextStrings = []
-        for feed in sensorResults:
-            # Check all fields for which we got alarm state mapping
-            entryID = feed['entry_id']
-            if entryID <= self.lastEntryID and checkOnlyHigherEntryIDs:
-                # Ignore entries we've checked before
-                continue
-            for fieldID, sensor in fieldIDToSensorMapping.items():
-                fieldKey = 'field' + str(fieldID)
-                # 2021-04-18: Thingspeak sends all values as String though we expect float or int
-                fieldValueRaw = feed[fieldKey]
-                if '.' in fieldValueRaw:
-                    sensor.setValue(float(fieldValueRaw))
-                else:
-                    sensor.setValue(int(fieldValueRaw))
-                thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
-                self.lastSensorUpdateDatetime = thisDatetime
-                # Check if alarm state is given
-                if sensor.isTriggered():
-                    if sensor.isAlarmOnlyOnceUntilUntriggered() and fieldID in self.lastFieldIDToSensorsMapping and self.lastFieldIDToSensorsMapping[fieldID].isTriggered():
-                        # print("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
-                        logging.info("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
-                        continue
-                    alarmDatetime = thisDatetime
-                    if sensor.getName() not in alarmSensorsNames:
-                        alarmSensorsNames.append(sensor.getName())
-                        alarmSensorsDebugTextStrings.append(sensor.getName() + "(" + fieldKey + ")")
-
-        if currentLastEntryID == self.lastEntryID:
-            logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateDatetime) + " [" + str(self.lastEntryID) + "]")
-            if datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= 10 * 60:
-                # Check if our alarm system maybe hasn't been responding for a long amount of time
-                lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateDatetime)
-                logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
-                if datetime.now().timestamp() - self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp > 60 * 60 and not self.isGloballySnoozed():
-                    text = SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>"
-                    self.sendMessageToAllApprovedUsers(text)
-                    self.lastTimeNoNewSensorDataAvailableWarningSentTimestamp = datetime.now().timestamp()
-            return
-        elif len(alarmSensorsNames) > 0:
-            print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
-            if self.lastEntryID == -1:
-                # E.g. no alarm on first start - we don't want to send alarms for old events or during testing every time after starting the bot
-                logging.info("Not sending alarms because: First start")
-            elif self.isGloballySnoozed():
-                logging.info("Not sending alarms because: Globally snoozed!")
-            elif datetime.now().timestamp() < (self.lastAlarmSentTimestamp + 1 * 60):
-                # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
-                logging.info("Not sending alarms because: Flood protection")
-            else:
-                logging.warning("Sending out alarms...")
-                text = "<b>Alarm! " + channelInfo['name'] + "</b>"
-                text += '\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames)
-                self.sendMessageToAllApprovedUsers(text)
-                self.lastAlarmSentTimestamp = datetime.now().timestamp()
-
-        self.lastFieldIDToSensorsMapping = fieldIDToSensorMapping.copy()
-        self.lastEntryID = currentLastEntryID
-        self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
+        self.alarmsystem.updateAlarms()
+        if len(self.alarmsystem.getAlarms()) > 0:
+            logging.warning("Sending out alarms...")
+            text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
+            for alarmMsg in self.alarmsystem.getAlarms():
+                text += "\n" + alarmMsg
+            self.sendMessageToAllApprovedUsers(text)
 
     def getCurrentGlobalSnoozeTimestamp(self) -> float:
         return self.getBotDoc().get(BOTDB.TIMESTAMP_SNOOZE_UNTIL, 0)
@@ -766,7 +699,7 @@ class ABBot:
                 self.couchdb[DATABASES.USERS].save(userDoc)
             pass
 
-    def getMeaningfulUserTitle(self, userID) -> str:
+    def getMeaningfulUserTitle(self, userID: Union[int, str]) -> str:
         """ This will usually return something like "@ExampleUsername (FirstName LastName)". """
         userDoc = self.getUserDoc(userID)
         if userDoc is None:
@@ -781,6 +714,13 @@ class ABBot:
             fullname += " " + userDoc[USERDB.LAST_NAME]
         fullname += ")"
         return fullname
+
+    def getMeaningfulUserTitleInContext(self, targetUserID: Union[int, str], ownUserID: Union[int, str]):
+        if str(ownUserID) == str(targetUserID):
+            return "dir"
+        else:
+            return self.getMeaningfulUserTitle(targetUserID)
+
 
     def getAdmins(self) -> dict:
         admins = {}
@@ -904,6 +844,7 @@ class ABBot:
 
     def errorAdminRightsRequired(self) -> None:
         raise BotException(SYMBOLS.WARNING + "Nur Admins dürfen diese Aktion ausführen!")
+
 
 if __name__ == '__main__':
     bot = ABBot()

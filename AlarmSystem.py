@@ -26,7 +26,8 @@ class AlarmSystem:
         self.noDataAlarmIntervalSeconds = 600
         self.lastNoNewSensorDataAvailableAlarmSentTimestamp = -1
         self.alarms = []
-        self.lastEntryID = -1
+        self.lastEntryID = None
+        self.channelName = None
 
     def getSensorAPIResponse(self) -> dict:
         # https://community.thingspeak.com/documentation%20.../api/
@@ -36,31 +37,32 @@ class AlarmSystem:
         return apiResult
 
     def getAlarms(self) -> list:
-        # TODO
         return self.alarms
 
     def setAlarmIntervalNoData(self, minutes: int):
+        """ Return alarms if no new sensor data is available every X minutes. """
         self.noDataAlarmIntervalSeconds = minutes * 60
 
     def setAlarmIntervalSensors(self, minutes: int):
         self.sensorAlarmIntervalSeconds = minutes * 60
 
-    def updateSensorStates(self):
+    def updateAlarms(self):
         """ Updates sensor states and saves/sets resulting alarms """
         # Clear last list of alarms
         self.alarms = []
         apiResult = self.getSensorAPIResponse()
         channelInfo = apiResult['channel']
+        self.channelName = channelInfo["name"]
         sensorResults = apiResult['feeds']
         # Most of all times we want to check only new entries but if e.g. the channel gets reset we need to check entries lower than our last saved number!
         checkOnlyHigherEntryIDs = True
         currentLastEntryID = channelInfo['last_entry_id']
-        if self.lastEntryID == -1:
-            # E.g. first time fetching data
+        if self.lastEntryID is None:
+            # First run -> Make sure we don't return alarms immediately!
             self.lastEntryID = currentLastEntryID
         elif currentLastEntryID == self.lastEntryID:
             logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateServersideDatetime) + " [" + str(self.lastEntryID) + "]")
+                self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]")
             if datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= self.noDataAlarmIntervalSeconds:
                 # Check if our alarm system maybe hasn't been responding for a long amount of time
                 lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
@@ -71,9 +73,9 @@ class AlarmSystem:
         elif currentLastEntryID < self.lastEntryID:
             # Rare case
             checkOnlyHigherEntryIDs = False
-            logging.info("Thingspeak channel has been reset(?) -> Checking ALL entries")
+            logging.info("Thingspeak channel has been reset(?) -> Checking ALL entryIDs")
         else:
-            logging.info("Checking all entries > " + str(self.lastEntryID))
+            logging.info("Checking all entryIDs > " + str(self.lastEntryID))
             pass
         alarmDatetime = None
         triggeredSensors = []
@@ -81,21 +83,21 @@ class AlarmSystem:
         for feed in sensorResults:
             # Check all fields for which we got alarm state mapping
             entryID = feed['entry_id']
-            if entryID <= self.lastEntryID and checkOnlyHigherEntryIDs:
-                # Ignore entries we've checked before
-                continue
             for fieldID, sensor in self.sensors.items():
                 fieldKey = 'field' + str(fieldID)
                 if fieldKey not in feed:
                     logging.warning("One of your configured sensors is not available in feed: " + fieldKey + " | " + sensor.getName())
                     continue
                 sensorWasTriggeredBefore = sensor.isTriggered()
-                # 2021-04-18: Thingspeak sends all values as String though we expect float or int
+                # Thingspeak sends all values as String but we need float or int
                 fieldValueRaw = feed[fieldKey]
                 if '.' in fieldValueRaw:
                     sensor.setValue(float(fieldValueRaw))
                 else:
                     sensor.setValue(int(fieldValueRaw))
+                if entryID <= self.lastEntryID and checkOnlyHigherEntryIDs:
+                    # Ignore possible alarms of entries we've checked before --> We actually do this inside this loop to be able to full all sensor values right on the first start
+                    continue
                 thisDatetime = datetime.strptime(feed['created_at'], '%Y-%m-%dT%H:%M:%S%z')
                 self.lastSensorUpdateServersideDatetime = thisDatetime
                 # Check if alarm state is given
@@ -113,10 +115,9 @@ class AlarmSystem:
             print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
             if datetime.now().timestamp() < (self.lastSensorAlarmSentTimestamp + self.sensorAlarmIntervalSeconds):
                 # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
-                logging.info("Not sending alarms because: Flood protection")
+                logging.info("Not setting alarms because: Flood protection")
             else:
-                logging.warning("Sending out alarms...")
-                # text = "<b>Alarm! " + channelInfo['name'] + "</b>"
+                logging.warning("Setting alarms...")
                 self.alarms.append('\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames))
                 self.lastSensorAlarmSentTimestamp = datetime.now().timestamp()
 
