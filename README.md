@@ -27,6 +27,7 @@ Admins sollten wissen was sie tun daher gibt es keine Anleitung für diesen Teil
 
 # TODOs
 * Irgendwas findet man immer :D
+* Broadcast Funktion soll auch Bilder/"Dateien" senden können
 * Refactoring der Alarm Funktion
 * Produktiv-Bot Temperatur Alarm Trigger in Config auf 65 Grad setzen
 
