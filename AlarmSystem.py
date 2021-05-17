@@ -5,7 +5,7 @@ from json import loads
 from hyper import HTTP20Connection
 
 from Helper import Config, formatDatetimeToGermanDate, SYMBOLS
-from Sensor import Sensor
+from Sensor import Sensor, SensorConfig
 
 
 class AlarmSystem:
@@ -19,13 +19,17 @@ class AlarmSystem:
         # Init sensors we want to check later
         self.sensors = {}
         for fieldIDStr, sensorUserConfig in self.cfg[Config.THINGSPEAK_FIELDS_ALARM_STATE_MAPPING].items():
-            self.sensors[int(fieldIDStr)] = Sensor(name=sensorUserConfig['name'], triggerValue=sensorUserConfig['trigger'],
+            self.sensors[int(fieldIDStr)] = Sensor(SensorConfig(name=sensorUserConfig['name'], triggerValue=sensorUserConfig['trigger'],
                                                    triggerOperator=sensorUserConfig['operator'],
-                                                   alarmOnlyOnceUntilUntriggered=sensorUserConfig.get('alarmOnlyOnceUntilUntriggered', False))
+                                                   alarmOnlyOnceUntilUntriggered=sensorUserConfig.get('alarmOnlyOnceUntilUntriggered', False),
+                                                                triggeredText=sensorUserConfig.get('triggeredText', None),
+                                                                unTriggeredText=sensorUserConfig.get('unTriggeredText', None),
+                                                                overridesSnooze=sensorUserConfig.get('overridesSnooze', False)))
         # Vars for "no data" warning
         self.noDataAlarmIntervalSeconds = 600
         self.lastNoNewSensorDataAvailableAlarmSentTimestamp = -1
         self.alarms = []
+        self.alarmsSnoozeOverride = []
         self.lastEntryID = None
         self.channelName = None
 
@@ -35,9 +39,6 @@ class AlarmSystem:
         conn.request("GET", '/channels/' + str(self.cfg[Config.THINGSPEAK_CHANNEL]) + '/feed.json?key=' + self.cfg[Config.THINGSPEAK_READ_APIKEY] + '&offset=1')
         apiResult = loads(conn.get_response().read())
         return apiResult
-
-    def getAlarms(self) -> list:
-        return self.alarms
 
     def setAlarmIntervalNoData(self, minutes: int):
         """ Return alarms if no new sensor data is available every X minutes. """
@@ -50,6 +51,7 @@ class AlarmSystem:
         """ Updates sensor states and saves/sets resulting alarms """
         # Clear last list of alarms
         self.alarms = []
+        self.alarmsSnoozeOverride = []
         apiResult = self.getSensorAPIResponse()
         channelInfo = apiResult['channel']
         self.channelName = channelInfo["name"]
@@ -104,7 +106,7 @@ class AlarmSystem:
                 if sensor.isTriggered():
                     if sensor.isAlarmOnlyOnceUntilUntriggered() and sensorWasTriggeredBefore:
                         # print("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
-                        logging.info("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
+                        logging.info("Ignore " + sensor.getName() + " because alarm is only allowed once when triggered until untriggered")
                         continue
                     if sensor.getName() not in alarmSensorsNames:
                         alarmSensorsNames.append(sensor.getName())
@@ -118,7 +120,12 @@ class AlarmSystem:
                 logging.info("Not setting alarms because: Flood protection")
             else:
                 logging.warning("Setting alarms...")
-                self.alarms.append('\n' + formatDatetimeToGermanDate(alarmDatetime) + ' | Sensoren: ' + ', '.join(alarmSensorsNames))
+                for triggeredSensor in triggeredSensors:
+                    alarmText = formatDatetimeToGermanDate(alarmDatetime) + ' | ' + triggeredSensor.getName()
+                    self.alarms.append(alarmText)
+                    # Store these separately
+                    if triggeredSensor.overridesSnooze:
+                        self.alarmsSnoozeOverride.append(alarmText)
                 self.lastSensorAlarmSentTimestamp = datetime.now().timestamp()
 
         self.lastEntryID = currentLastEntryID

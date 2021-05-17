@@ -10,24 +10,32 @@
       "name": "Door",
       "trigger": 1,
       "operator": "EQ",
-      "alarmOnlyOnceUntilUntriggered": false
+      "alarmOnlyOnceUntilUntriggered": false,
+      "triggeredText": "Geöffnet",
+      "unTriggeredText": "Geschlossen"
     },
     "2": {
       "name": "Movement",
       "trigger": 1,
       "operator": "EQ",
-      "alarmOnlyOnceUntilUntriggered": false
+      "alarmOnlyOnceUntilUntriggered": false,
+      "triggeredText": "Bewegung",
+      "unTriggeredText": "Keine Bewegung"
     },
     "3": {
       "name": "BatteryVoltage",
       "trigger": 11.5,
       "operator": "LESS",
-      "alarmOnlyOnceUntilUntriggered": true
+      "alarmOnlyOnceUntilUntriggered": true,
+      "triggeredText": "niedrig",
+      "unTriggeredText": "ausreichend"
     },
     "4": {
       "name": "Temperatur",
-      "trigger": 100,
-      "operator": "MORE"
+      "trigger": 60,
+      "operator": "MORE",
+      "triggeredText": "Kritisch: Über 65 Grad",
+      "unTriggeredText": "Ok"
     }
   }
 }

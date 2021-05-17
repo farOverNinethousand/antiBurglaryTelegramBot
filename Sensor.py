@@ -1,34 +1,53 @@
 from datetime import datetime
 from typing import Union
 
+from pydantic import BaseModel
+from typing import Optional, List, Union
+
+
+class SensorConfig(BaseModel):
+    name: str
+    triggerValue: Union[int, float]
+    triggerOperator: str
+    alarmOnlyOnceUntilUntriggered: Optional[bool] = False
+    overridesSnooze: Optional[bool] = False
+    triggeredText: Optional[str] = None
+    unTriggeredText: Optional[str] = None
+
+
 
 class Sensor:
 
-    def __init__(self, name: str, triggerValue: Union[int, float], triggerOperator: str, alarmOnlyOnceUntilUntriggered: bool = False):
+    def __init__(self, cfg: SensorConfig):
 
-        self.name = name
-        self.triggerValue = triggerValue
-        self.triggerOperator = triggerOperator
-        self.alarmOnceOnceUntilUntriggered = alarmOnlyOnceUntilUntriggered
+        self.name = cfg.name
+        self.triggerValue = cfg.triggerValue
+        self.triggerOperator = cfg.triggerOperator
+        self.alarmOnceOnceUntilUntriggered = cfg.alarmOnlyOnceUntilUntriggered
+        self.overridesSnooze = cfg.overridesSnooze
         self.value = None
         self.lastTimeTriggered = -1
+        self.triggeredText = cfg.triggeredText
+        self.unTriggeredText = cfg.unTriggeredText
 
     def getName(self):
         return self.name
 
-    def getTriggeredText(self):
-        """ E.g. "Door open" """
-        return None
-
-    def getNotTriggeredText(self):
-        """ E.g. "Door closed" """
-        return None
+    # def getTriggeredText(self):
+    #     """ E.g. "Door open" """
+    #     return None
+    #
+    # def getNotTriggeredText(self):
+    #     """ E.g. "Door closed" """
+    #     return None
 
     def getStatusText(self):
+        if self.value is None:
+            return "Undefiniert"
         if self.isTriggered():
-            return self.getTriggeredText()
+            return self.triggeredText
         else:
-            return self.getNotTriggeredText()
+            return self.unTriggeredText
 
     def isTriggered(self) -> bool:
         # TODO: Add support for more operators

@@ -12,11 +12,8 @@ from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackC
     MessageHandler, Filters
 
 from AlarmSystem import AlarmSystem
-from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatDatetimeToGermanDate, formatTimestampToGermanDateWithSeconds, formatTimestampToGermanDate, BotException
-from hyper import HTTP20Connection  # we're using hyper instead of requests because of its' HTTP/2.0 capability
-from json import loads
+from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatTimestampToGermanDate, BotException
 
-from Sensor import Sensor
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -72,7 +69,7 @@ class BOTDB:
     MUTED_BY_USER_ID = 'muted_by'
 
 
-BOT_VERSION = "0.8.4"
+BOT_VERSION = "0.8.5"
 
 
 class ABBot:
@@ -248,9 +245,14 @@ class ABBot:
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.MEGAPHONE + 'Broadcast', callback_data=CallbackVars.SEND_BROADCAST)])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.WRENCH + 'Einstellungen', callback_data=CallbackVars.MENU_SETTINGS)])
-            menuText += "\nLetzte Sensordaten:"
+            menuText += "\nLetzte Sensordaten:<pre>"
+            index = 0
             for sensor in list(self.alarmsystem.sensors.values()):
-                menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue())
+                if index > 0:
+                    menuText += "\n"
+                menuText += sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()
+                index += 1
+            menuText += "</pre>"
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
@@ -646,12 +648,19 @@ class ABBot:
 
     def sendAlarmNotifications(self):
         self.alarmsystem.updateAlarms()
-        if len(self.alarmsystem.getAlarms()) > 0:
+        if len(self.alarmsystem.alarms) > 0:
             logging.warning("Sending out alarms...")
-            text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
-            for alarmMsg in self.alarmsystem.getAlarms():
-                text += "\n" + alarmMsg
-            self.sendMessageToAllApprovedUsers(text)
+            if not self.isGloballySnoozed():
+                text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
+                for alarmMsg in self.alarmsystem.alarms:
+                    text += "\n" + alarmMsg
+                self.sendMessageToAllApprovedUsers(text)
+            elif len(self.alarmsystem.alarmsSnoozeOverride) > 0:
+                # Some alarms should be sent even in snoozed mode
+                text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
+                for alarmMsg in self.alarmsystem.alarmsSnoozeOverride:
+                    text += "\n" + alarmMsg
+                self.sendMessageToAllApprovedUsers(text)
 
     def getCurrentGlobalSnoozeTimestamp(self) -> float:
         return self.getBotDoc().get(BOTDB.TIMESTAMP_SNOOZE_UNTIL, 0)
