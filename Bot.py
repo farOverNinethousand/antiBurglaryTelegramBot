@@ -647,13 +647,22 @@ class ABBot:
 
     def sendAlarmNotifications(self):
         self.alarmsystem.updateAlarms()
-        if len(self.alarmsystem.alarms) > 0:
-            logging.warning("Sending out alarms...")
+
+        if len(self.alarmsystem.alarms) > 0 or len(self.alarmsystem.alarmsAdminOnly) > 0:
+            logging.warning("Sending out user alarms...")
+            totalAdminOnlyAlarmText = None
             if not self.isGloballySnoozed():
-                text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
-                for alarmMsg in self.alarmsystem.alarms:
-                    text += "\n" + alarmMsg
-                self.sendMessageToAllApprovedUsers(text)
+                amdinOnlyAlarmText = self.alarmsystem.getAlarmTextAdminOnly()
+                if amdinOnlyAlarmText is not None:
+                    logging.warning("Sending out admin alarms...")
+                    totalAdminOnlyAlarmText = "Admin Alarme"
+                    totalAdminOnlyAlarmText += "\n" + amdinOnlyAlarmText
+                    self.sendMessageToAllAdmins(amdinOnlyAlarmText)
+                else:
+                    text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
+                    for alarmMsg in self.alarmsystem.alarms:
+                        text += "\n" + alarmMsg
+                    self.sendMessageToAllApprovedUsers(text)
             elif len(self.alarmsystem.alarmsSnoozeOverride) > 0:
                 # Some alarms should be sent even in snoozed mode
                 text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
@@ -674,6 +683,10 @@ class ABBot:
     def sendMessageToAllApprovedUsers(self, text: str):
         approvedUsers = self.getApprovedUsers()
         self.sendMessageToMultipleUsers(approvedUsers, text)
+
+    def sendMessageToAllAdmins(self, text: str):
+        adminUsers = self.getAdmins()
+        self.sendMessageToMultipleUsers(adminUsers, text)
 
     def sendMessageToMultipleUsers(self, users: dict, text: str):
         logging.info("Sending messages to " + str(len(users)) + " users...")

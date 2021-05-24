@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from json import loads
+from typing import Union
 
 from hyper import HTTP20Connection
 
@@ -30,6 +31,7 @@ class AlarmSystem:
         self.lastNoNewSensorDataAvailableAlarmSentTimestamp = -1
         self.alarms = []
         self.alarmsSnoozeOverride = []
+        self.alarmsAdminOnly = []
         self.lastEntryID = None
         self.channelName = None
 
@@ -48,11 +50,40 @@ class AlarmSystem:
     def setAlarmIntervalSensors(self, seconds: int):
         self.sensorAlarmIntervalSeconds = seconds * 60
 
+    def getAlarmText(self) -> Union[str, None]:
+        if len(self.alarms) == 0:
+            return None
+        else:
+            text = "<b>Alarm! " + self.channelName + "</b>"
+            index = 0
+            for alarmMsg in self.alarms:
+                if index > 0:
+                    text += "\n"
+                text += alarmMsg
+            return text
+
+    def getAlarmTextAdminOnly(self) -> Union[str, None]:
+        if len(self.alarmsAdminOnly) == 0:
+            return None
+        else:
+            text = "<b>Admin Alarm! " + self.channelName + "</b>"
+            index = 0
+            for alarmMsg in self.alarmsAdminOnly:
+                if index > 0:
+                    text += "\n"
+                text += alarmMsg
+            return text
+
+    def getAlarmTextSnoozeOverride(self) -> Union[str, None]:
+        # TODO
+        return None
+
     def updateAlarms(self):
         """ Updates sensor states and saves/sets resulting alarms """
         # Clear last list of alarms
         self.alarms = []
         self.alarmsSnoozeOverride = []
+        self.alarmsAdminOnly = []
         apiResult = self.getSensorAPIResponse()
         channelInfo = apiResult['channel']
         self.channelName = channelInfo["name"]
@@ -122,8 +153,12 @@ class AlarmSystem:
             else:
                 logging.warning("Setting alarms...")
                 for triggeredSensor in triggeredSensors:
+                    # TODO: Make use of Sensor.getAlarmText()
                     alarmText = formatDatetimeToGermanDate(alarmDatetime) + ' | ' + triggeredSensor.getName()
-                    self.alarms.append(alarmText)
+                    if triggeredSensor.isAdminOnlyAlarm:
+                        self.alarmsAdminOnly.append(alarmText)
+                    else:
+                        self.alarms.append(alarmText)
                     # Store these separately
                     if triggeredSensor.overridesSnooze:
                         self.alarmsSnoozeOverride.append(alarmText)

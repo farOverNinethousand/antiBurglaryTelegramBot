@@ -14,7 +14,6 @@ class SensorConfig(BaseModel):
     unTriggeredText: Optional[str] = None
 
 
-
 class Sensor:
 
     def __init__(self, cfg: SensorConfig):
@@ -28,6 +27,7 @@ class Sensor:
         self.lastTimeTriggered = -1
         self.triggeredText = cfg.triggeredText
         self.unTriggeredText = cfg.unTriggeredText
+        self.isAdminOnlyAlarm = False
 
     def getName(self):
         return self.name
@@ -72,13 +72,24 @@ class Sensor:
         if self.isTriggered():
             self.lastTimeTriggered = datetime.now().timestamp()
 
+    def setAdminOnlyAlarm(self, adminOnlyAlarm: bool):
+        self.isAdminOnlyAlarm = adminOnlyAlarm
+
     def getValue(self):
         return self.value
 
+    def getAlarmText(self) -> str:
+        """ Returns text to reflect alarm e.g. "Door | Open" """
+        return self.getName() + " | " + self.getStatusText()
+
 
 if __name__ == '__main__':
-    sensor1 = Sensor("Batterie", 11.4, "LESS", False)
+    sensor1 = Sensor(SensorConfig(name="Batterie", triggerValue=11.4,
+                                  triggerOperator="LESS",
+                                  alarmOnlyOnceUntilUntriggered=False))
     sensor1.setValue(11.4)
 
-    sensorNew = Sensor("Batterie2", 11.4, "LESS", False)
+    sensorNew = Sensor(SensorConfig(name="Batterie2", triggerValue=11.4,
+                                    triggerOperator="LESS",
+                                    alarmOnlyOnceUntilUntriggered=False))
     sensor1.setValue(11.4)
