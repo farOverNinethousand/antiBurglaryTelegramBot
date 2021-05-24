@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import Union
 
 from pydantic import BaseModel
-from typing import Optional, List, Union
+from typing import Optional, Union
 
 
 class SensorConfig(BaseModel):

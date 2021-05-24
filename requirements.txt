@@ -3,3 +3,4 @@ telegram~=0.0.1
 python-telegram-bot~=13.5
 schedule~=1.1.0
 hyper~=0.7.0
+pydantic~=1.8.2

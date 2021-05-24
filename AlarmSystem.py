@@ -40,12 +40,13 @@ class AlarmSystem:
         apiResult = loads(conn.get_response().read())
         return apiResult
 
-    def setAlarmIntervalNoData(self, minutes: int):
-        """ Return alarms if no new sensor data is available every X minutes. """
-        self.noDataAlarmIntervalSeconds = minutes * 60
+    def setAlarmIntervalNoData(self, seconds: int):
+        """ Return alarms if no new sensor data is available every X minutes.
+        Set this to -1 to disable alarms on no data. """
+        self.noDataAlarmIntervalSeconds = seconds * 60
 
-    def setAlarmIntervalSensors(self, minutes: int):
-        self.sensorAlarmIntervalSeconds = minutes * 60
+    def setAlarmIntervalSensors(self, seconds: int):
+        self.sensorAlarmIntervalSeconds = seconds * 60
 
     def updateAlarms(self):
         """ Updates sensor states and saves/sets resulting alarms """
@@ -65,8 +66,8 @@ class AlarmSystem:
         elif currentLastEntryID == self.lastEntryID:
             logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
                 self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]")
-            if datetime.now().timestamp() - self.lastEntryIDChangeTimestamp >= self.noDataAlarmIntervalSeconds:
-                # Check if our alarm system maybe hasn't been responding for a long amount of time
+            # Check if our alarm system maybe hasn't been responding for a long amount of time
+            if -1 < self.noDataAlarmIntervalSeconds <= datetime.now().timestamp() - self.lastEntryIDChangeTimestamp:
                 lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
                 logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
                 if datetime.now().timestamp() - self.lastNoNewSensorDataAvailableAlarmSentTimestamp > 60 * 60:

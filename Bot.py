@@ -81,6 +81,7 @@ class ABBot:
         # Init CouchDB
         self.couchdb = couchdb.Server(self.cfg[Config.DB_URL])
         self.alarmsystem = AlarmSystem(self.cfg)
+        self.alarmsystem.setAlarmIntervalNoData(-1)
         # Init that
         self.alarmsystem.updateAlarms()
         # Create required DBs
@@ -304,8 +305,6 @@ class ABBot:
                 userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Admin entfernen', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
             else:
                 userOptions.append([InlineKeyboardButton(SYMBOLS.PLUS + 'Admin', callback_data=CallbackVars.MENU_ACP_ACTION_TRIGGER_ADMIN + userIDStr)])
-            # TODO: Add functionality or remove this
-            # userOptions.append([InlineKeyboardButton('Snooze Spamschutz entfernen*', callback_data=CallbackVars.MENU_MAIN)])
             menuText += "\nTelegram Benutzer-ID: " + userIDStr
             menuText += "\nRegistriert am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_REGISTERED])
             menuText += "\nBestätigt am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_APPROVED])
