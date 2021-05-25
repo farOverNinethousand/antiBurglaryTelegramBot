@@ -52,6 +52,8 @@ thingspeak_fields_alarm_state_mapping[name] | String | Name des Sensors | `Test`
 thingspeak_fields_alarm_state_mapping[trigger] | float | Ab welchem Wert soll dieser Sensor als getriggert gelten? | `3.15`
 thingspeak_fields_alarm_state_mapping[operator] | String | Operator für den Triggerwert | `LESS`, `MORE`, `EQ`
 thingspeak_fields_alarm_state_mapping[alarmOnlyOnceUntilUntriggered] | boolean  [Optional]  default=false | Ist dies ein Schwellwertsensor, der nach dem ersten Triggern nur einen Alarm auslösen darf bis er wieder nicht mehr getriggert ist?  Beispiel: Nur eine Warnung bei niedrigem Akkustand bis dieser wieder 'hoch' ist. | `true`
+thingspeak_fields_alarm_state_mapping[adminOnly] | boolean  [Optional]  default=false | Sollen Alarme dieses Sensors nur an Admins rausgeschickt werden oder an alle Bot User? | `true`
+
 
 # Beispiel Config (config.json.default)
 

@@ -25,13 +25,15 @@ class AlarmSystem:
                                                    alarmOnlyOnceUntilUntriggered=sensorUserConfig.get('alarmOnlyOnceUntilUntriggered', False),
                                                                 triggeredText=sensorUserConfig.get('triggeredText', None),
                                                                 unTriggeredText=sensorUserConfig.get('unTriggeredText', None),
-                                                                overridesSnooze=sensorUserConfig.get('overridesSnooze', False)))
+                                                                overridesSnooze=sensorUserConfig.get('overridesSnooze', False),
+                                                                adminOnly=sensorUserConfig.get('adminOnly', False)))
         # Vars for "no data" warning
         self.noDataAlarmIntervalSeconds = 600
         self.lastNoNewSensorDataAvailableAlarmSentTimestamp = -1
         self.alarms = []
         self.alarmsSnoozeOverride = []
         self.alarmsAdminOnly = []
+        self.alarmsAdminOnlySnoozeOverride = []
         self.lastEntryID = None
         self.channelName = None
 
@@ -54,9 +56,21 @@ class AlarmSystem:
         if len(self.alarms) == 0:
             return None
         else:
-            text = "<b>Alarm! " + self.channelName + "</b>"
+            text = ""
             index = 0
             for alarmMsg in self.alarms:
+                if index > 0:
+                    text += "\n"
+                text += alarmMsg
+            return text
+
+    def getAlarmTextSnoozeOverride(self) -> Union[str, None]:
+        if len(self.alarmsSnoozeOverride) == 0:
+            return None
+        else:
+            text = ""
+            index = 0
+            for alarmMsg in self.alarmsSnoozeOverride:
                 if index > 0:
                     text += "\n"
                 text += alarmMsg
@@ -74,9 +88,17 @@ class AlarmSystem:
                 text += alarmMsg
             return text
 
-    def getAlarmTextSnoozeOverride(self) -> Union[str, None]:
-        # TODO
-        return None
+    def getAlarmTextAdminOnlySnoozeOverride(self) -> Union[str, None]:
+        if len(self.alarmsAdminOnlySnoozeOverride) == 0:
+            return None
+        else:
+            text = "<b>Admin Alarm! " + self.channelName + "</b>"
+            index = 0
+            for alarmMsg in self.alarmsAdminOnlySnoozeOverride:
+                if index > 0:
+                    text += "\n"
+                text += alarmMsg
+            return text
 
     def updateAlarms(self):
         """ Updates sensor states and saves/sets resulting alarms """
@@ -155,8 +177,12 @@ class AlarmSystem:
                 for triggeredSensor in triggeredSensors:
                     # TODO: Make use of Sensor.getAlarmText()
                     alarmText = formatDatetimeToGermanDate(alarmDatetime) + ' | ' + triggeredSensor.getName()
-                    if triggeredSensor.isAdminOnlyAlarm:
+                    if triggeredSensor.isAdminOnlyAlarm and triggeredSensor.overridesSnooze:
+                        self.alarmsAdminOnlySnoozeOverride.append(alarmText)
+                    elif triggeredSensor.isAdminOnlyAlarm:
                         self.alarmsAdminOnly.append(alarmText)
+                    elif triggeredSensor.overridesSnooze:
+                        self.alarmsSnoozeOverride.append(alarmText)
                     else:
                         self.alarms.append(alarmText)
                     # Store these separately

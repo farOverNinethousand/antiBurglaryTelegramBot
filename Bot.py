@@ -648,27 +648,58 @@ class ABBot:
     def sendAlarmNotifications(self):
         self.alarmsystem.updateAlarms()
 
-        if len(self.alarmsystem.alarms) > 0 or len(self.alarmsystem.alarmsAdminOnly) > 0:
+        totalAdminOnlyAlarmText = ""
+        totalUserAlarmText = ""
+        if self.isGloballySnoozed():
+            # Collect all alarms that should even be sent in snoozed mode
+            amdinOnlyAlarmTextSnoozeOverride = self.alarmsystem.getAlarmTextAdminOnlySnoozeOverride()
+            if amdinOnlyAlarmTextSnoozeOverride is not None:
+                totalAdminOnlyAlarmText += "Admin Alarme Snooze Override:"
+                totalAdminOnlyAlarmText += "\n" + amdinOnlyAlarmTextSnoozeOverride
+            alarmsSnoozeOverride = self.alarmsystem.getAlarmTextSnoozeOverride()
+            if alarmsSnoozeOverride is not None:
+                totalUserAlarmText += "User Alarme Snooze Override:"
+                totalUserAlarmText += "\n" + alarmsSnoozeOverride
+        else:
+            # Collect all alarms
+            adminAlarms = self.alarmsystem.getAlarmTextAdminOnly()
+            if adminAlarms is not None:
+                if len(totalAdminOnlyAlarmText) > 0:
+                    totalAdminOnlyAlarmText += "\n"
+                totalAdminOnlyAlarmText += "Admin Alarme:"
+                totalAdminOnlyAlarmText += "\n" + adminAlarms
+            userAlarms = self.alarmsystem.getAlarmText()
+            if userAlarms is not None:
+                if len(totalUserAlarmText) > 0:
+                    totalUserAlarmText += "\n"
+                totalUserAlarmText += "User Alarme:"
+                totalUserAlarmText += "\n" + userAlarms
+        # Send alarms if there are some
+        if len(totalAdminOnlyAlarmText) > 0:
+            logging.warning("Sending out admin alarms...")
+            self.sendMessageToAllAdmins(totalAdminOnlyAlarmText)
+        if len(totalUserAlarmText) > 0:
             logging.warning("Sending out user alarms...")
-            totalAdminOnlyAlarmText = None
-            if not self.isGloballySnoozed():
-                amdinOnlyAlarmText = self.alarmsystem.getAlarmTextAdminOnly()
-                if amdinOnlyAlarmText is not None:
-                    logging.warning("Sending out admin alarms...")
-                    totalAdminOnlyAlarmText = "Admin Alarme"
-                    totalAdminOnlyAlarmText += "\n" + amdinOnlyAlarmText
-                    self.sendMessageToAllAdmins(amdinOnlyAlarmText)
-                else:
-                    text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
-                    for alarmMsg in self.alarmsystem.alarms:
-                        text += "\n" + alarmMsg
-                    self.sendMessageToAllApprovedUsers(text)
-            elif len(self.alarmsystem.alarmsSnoozeOverride) > 0:
-                # Some alarms should be sent even in snoozed mode
-                text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
-                for alarmMsg in self.alarmsystem.alarmsSnoozeOverride:
-                    text += "\n" + alarmMsg
-                self.sendMessageToAllApprovedUsers(text)
+            self.sendMessageToAllApprovedUsers(totalAdminOnlyAlarmText)
+
+        # if not self.isGloballySnoozed():
+        #     amdinOnlyAlarmText = self.alarmsystem.getAlarmTextAdminOnly()
+        #     if amdinOnlyAlarmText is not None:
+        #         logging.warning("Sending out admin alarms...")
+        #         totalAdminOnlyAlarmText = "Admin Alarme"
+        #         totalAdminOnlyAlarmText += "\n" + amdinOnlyAlarmText
+        #         self.sendMessageToAllAdmins(amdinOnlyAlarmText)
+        #     else:
+        #         text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
+        #         for alarmMsg in self.alarmsystem.alarms:
+        #             text += "\n" + alarmMsg
+        #         self.sendMessageToAllApprovedUsers(text)
+        # elif len(self.alarmsystem.alarmsSnoozeOverride) > 0:
+        #     # Some alarms should be sent even in snoozed mode
+        #     text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
+        #     for alarmMsg in self.alarmsystem.alarmsSnoozeOverride:
+        #         text += "\n" + alarmMsg
+        #     self.sendMessageToAllApprovedUsers(text)
 
     def getCurrentGlobalSnoozeTimestamp(self) -> float:
         return self.getBotDoc().get(BOTDB.TIMESTAMP_SNOOZE_UNTIL, 0)

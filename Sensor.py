@@ -12,6 +12,7 @@ class SensorConfig(BaseModel):
     overridesSnooze: Optional[bool] = False
     triggeredText: Optional[str] = None
     unTriggeredText: Optional[str] = None
+    adminOnly: Optional[bool] = False
 
 
 class Sensor:
