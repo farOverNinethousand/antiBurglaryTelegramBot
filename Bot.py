@@ -12,8 +12,7 @@ from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackC
     MessageHandler, Filters
 
 from AlarmSystem import AlarmSystem
-from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatTimestampToGermanDate, BotException
-
+from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatTimestampToGermanDate, BotException, formatDatetimeToGermanDate
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -246,7 +245,7 @@ class ABBot:
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.MEGAPHONE + 'Broadcast', callback_data=CallbackVars.SEND_BROADCAST)])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.WRENCH + 'Einstellungen', callback_data=CallbackVars.MENU_SETTINGS)])
-            menuText += "\nLetzte Sensordaten:<pre>"
+            menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime) + " (vor " + getFormattedTimeDelta(self.alarmsystem.lastSensorUpdateServersideDatetime.timestamp()) + "):<pre>"
             index = 0
             for sensor in list(self.alarmsystem.sensors.values()):
                 if index > 0:

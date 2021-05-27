@@ -29,6 +29,7 @@ class AlarmSystem:
                                                                 adminOnly=sensorUserConfig.get('adminOnly', False)))
         # Vars for "no data" warning
         self.noDataAlarmIntervalSeconds = 600
+        self.noDataAlarmHasBeenSent = False
         self.lastNoNewSensorDataAvailableAlarmSentTimestamp = -1
         self.alarms = []
         self.alarmsSnoozeOverride = []
@@ -119,12 +120,16 @@ class AlarmSystem:
         elif currentLastEntryID == self.lastEntryID:
             logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
                 self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]")
-            # Check if our alarm system maybe hasn't been responding for a long amount of time
+            # Check if our alarm system maybe hasn't been responding for a long amount of time. Only send alarm for this once until data is back!
             if -1 < self.noDataAlarmIntervalSeconds <= datetime.now().timestamp() - self.lastEntryIDChangeTimestamp:
                 lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
                 logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
-                if datetime.now().timestamp() - self.lastNoNewSensorDataAvailableAlarmSentTimestamp > 60 * 60:
-                    self.alarms.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>")
+                if not self.noDataAlarmHasBeenSent:
+                    self.alarmsAdminOnly.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>")
+                    self.lastNoNewSensorDataAvailableAlarmSentTimestamp = datetime.now().timestamp()
+                    self.noDataAlarmHasBeenSent = True
+            else:
+                self.noDataAlarmHasBeenSent = False
             return
         elif currentLastEntryID < self.lastEntryID:
             # Rare case
