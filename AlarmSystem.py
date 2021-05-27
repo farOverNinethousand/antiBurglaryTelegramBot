@@ -29,7 +29,7 @@ class AlarmSystem:
                                                                 adminOnly=sensorUserConfig.get('adminOnly', False)))
         # Vars for "no data" warning
         self.noDataAlarmIntervalSeconds = 600
-        self.noDataAlarmHasBeenSent = False
+        self.noDataAlarmHasBeenTriggered = False
         self.lastNoNewSensorDataAvailableAlarmSentTimestamp = -1
         self.alarms = []
         self.alarmsSnoozeOverride = []
@@ -37,6 +37,12 @@ class AlarmSystem:
         self.alarmsAdminOnlySnoozeOverride = []
         self.lastEntryID = None
         self.channelName = None
+
+    def getNoDataStatus(self) -> str:
+        if self.noDataAlarmHasBeenTriggered:
+            return SYMBOLS.DENY + "Keine neuen Daten verfügbar!"
+        else:
+            return "Ok"
 
     def getSensorAPIResponse(self) -> dict:
         # https://community.thingspeak.com/documentation%20.../api/
@@ -48,7 +54,7 @@ class AlarmSystem:
     def setAlarmIntervalNoData(self, seconds: int):
         """ Return alarms if no new sensor data is available every X minutes.
         Set this to -1 to disable alarms on no data. """
-        self.noDataAlarmIntervalSeconds = seconds * 60
+        self.noDataAlarmIntervalSeconds = seconds
 
     def setAlarmIntervalSensors(self, seconds: int):
         self.sensorAlarmIntervalSeconds = seconds * 60
@@ -81,24 +87,21 @@ class AlarmSystem:
         if len(self.alarmsAdminOnly) == 0:
             return None
         else:
-            text = "<b>Admin Alarm! " + self.channelName + "</b>"
-            index = 0
+            text = ""
+            # index = 0
             for alarmMsg in self.alarmsAdminOnly:
-                if index > 0:
-                    text += "\n"
-                text += alarmMsg
+                # if index > 0:
+                #     text += "\n"
+                text += "\n" + alarmMsg
             return text
 
     def getAlarmTextAdminOnlySnoozeOverride(self) -> Union[str, None]:
         if len(self.alarmsAdminOnlySnoozeOverride) == 0:
             return None
         else:
-            text = "<b>Admin Alarm! " + self.channelName + "</b>"
-            index = 0
+            text = ""
             for alarmMsg in self.alarmsAdminOnlySnoozeOverride:
-                if index > 0:
-                    text += "\n"
-                text += alarmMsg
+                text += "\n" + alarmMsg
             return text
 
     def updateAlarms(self):
@@ -114,30 +117,20 @@ class AlarmSystem:
         # Most of all times we want to check only new entries but if e.g. the channel gets reset we need to check entries lower than our last saved number!
         checkOnlyHigherEntryIDs = True
         currentLastEntryID = channelInfo['last_entry_id']
+        allowSendSensorAlarms = True
         if self.lastEntryID is None:
             # First run -> Make sure we don't return alarms immediately!
             self.lastEntryID = currentLastEntryID
+            self.lastSensorUpdateServersideDatetime = datetime.strptime(sensorResults[len(sensorResults) - 1]["created_at"], '%Y-%m-%dT%H:%M:%S%z')
+            allowSendSensorAlarms = False
         elif currentLastEntryID == self.lastEntryID:
-            logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]")
-            # Check if our alarm system maybe hasn't been responding for a long amount of time. Only send alarm for this once until data is back!
-            if -1 < self.noDataAlarmIntervalSeconds <= datetime.now().timestamp() - self.lastEntryIDChangeTimestamp:
-                lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
-                logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
-                if not self.noDataAlarmHasBeenSent:
-                    self.alarmsAdminOnly.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>")
-                    self.lastNoNewSensorDataAvailableAlarmSentTimestamp = datetime.now().timestamp()
-                    self.noDataAlarmHasBeenSent = True
-            else:
-                self.noDataAlarmHasBeenSent = False
-            return
+            allowSendSensorAlarms = False
         elif currentLastEntryID < self.lastEntryID:
             # Rare case
             checkOnlyHigherEntryIDs = False
             logging.info("Thingspeak channel has been reset(?) -> Checking ALL entryIDs")
         else:
             logging.info("Checking all entryIDs > " + str(self.lastEntryID))
-            pass
         alarmDatetime = None
         triggeredSensors = []
         alarmSensorsNames = []
@@ -172,7 +165,20 @@ class AlarmSystem:
                         triggeredSensors.append(sensor)
                         alarmDatetime = thisDatetime
 
-        if len(alarmSensorsNames) > 0:
+        if not allowSendSensorAlarms:
+            logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
+                self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]")
+            # Check if our alarm system maybe hasn't been responding for a long amount of time. Only send alarm for this once until data is back!
+            if -1 < self.noDataAlarmIntervalSeconds < datetime.now().timestamp() - self.lastEntryIDChangeTimestamp:
+                lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
+                logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
+                if not self.noDataAlarmHasBeenTriggered:
+                    self.alarmsAdminOnly.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>")
+                    self.lastNoNewSensorDataAvailableAlarmSentTimestamp = datetime.now().timestamp()
+                    self.noDataAlarmHasBeenTriggered = True
+            else:
+                self.noDataAlarmHasBeenTriggered = False
+        elif len(alarmSensorsNames) > 0:
             print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
             if datetime.now().timestamp() < (self.lastSensorAlarmSentTimestamp + self.sensorAlarmIntervalSeconds):
                 # Only allow alarms every X minutes otherwise we'd send new messages every time this code gets executed!
@@ -194,6 +200,8 @@ class AlarmSystem:
                     if triggeredSensor.overridesSnooze:
                         self.alarmsSnoozeOverride.append(alarmText)
                 self.lastSensorAlarmSentTimestamp = datetime.now().timestamp()
-
-        self.lastEntryID = currentLastEntryID
-        self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
+            self.lastEntryID = currentLastEntryID
+            self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
+        else:
+            # No alarms
+            pass

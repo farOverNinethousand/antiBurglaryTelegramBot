@@ -60,6 +60,11 @@ def getFormattedTimeDelta(futureTimestamp: float) -> str:
     # https://stackoverflow.com/questions/538666/format-timedelta-to-string
     secondsRemaining = futureTimestamp - datetime.now().timestamp()
     duration = datetime.utcfromtimestamp(secondsRemaining)
+    return getFormattedDuration(duration)
+
+
+def getFormattedDuration(duration: float) -> str:
+    duration = datetime.utcfromtimestamp(duration)
     return duration.strftime("%Hh:%Mm")
 
 

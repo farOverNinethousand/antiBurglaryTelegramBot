@@ -6,13 +6,13 @@ from typing import Union
 
 import couchdb
 import schedule
-from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message, InputMediaPhoto
 from telegram.error import BadRequest, Unauthorized
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
 
 from AlarmSystem import AlarmSystem
-from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatTimestampToGermanDate, BotException, formatDatetimeToGermanDate
+from Helper import Config, loadConfig, SYMBOLS, getFormattedTimeDelta, formatTimestampToGermanDate, BotException, formatDatetimeToGermanDate, getFormattedDuration
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -68,7 +68,7 @@ class BOTDB:
     MUTED_BY_USER_ID = 'muted_by'
 
 
-BOT_VERSION = "0.8.5"
+BOT_VERSION = "0.8.6"
 
 
 class ABBot:
@@ -80,7 +80,7 @@ class ABBot:
         # Init CouchDB
         self.couchdb = couchdb.Server(self.cfg[Config.DB_URL])
         self.alarmsystem = AlarmSystem(self.cfg)
-        self.alarmsystem.setAlarmIntervalNoData(-1)
+        self.alarmsystem.setAlarmIntervalNoData(600)
         # Init that
         self.alarmsystem.updateAlarms()
         # Create required DBs
@@ -114,7 +114,7 @@ class ABBot:
                 CallbackVars.SEND_BROADCAST: [
                     # Go back to main menu if user enters ANY command.
                     MessageHandler(Filters.command, self.botDisplayMenuMain),
-                    MessageHandler(Filters.text, self.botSendUserDefinedBroadcast),
+                    MessageHandler((Filters.photo | Filters.text), self.botSendUserDefinedBroadcast),
                 ],
                 CallbackVars.MENU_SETTINGS: [
                     CallbackQueryHandler(self.botDisplayMenuMain, pattern='^' + CallbackVars.MENU_MAIN + '$'),
@@ -245,13 +245,12 @@ class ABBot:
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.MEGAPHONE + 'Broadcast', callback_data=CallbackVars.SEND_BROADCAST)])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.WRENCH + 'Einstellungen', callback_data=CallbackVars.MENU_SETTINGS)])
-            menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime) + " (vor " + getFormattedTimeDelta(self.alarmsystem.lastSensorUpdateServersideDatetime.timestamp()) + "):<pre>"
-            index = 0
+            menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime) + " (vor " + getFormattedDuration(datetime.now().timestamp() - self.alarmsystem.lastSensorUpdateServersideDatetime.timestamp()) + "):"
+            # Treat this like a dummy sensor
+            menuText += "<pre>"
+            menuText += "\nNoDataStatus: " + self.alarmsystem.getNoDataStatus()
             for sensor in list(self.alarmsystem.sensors.values()):
-                if index > 0:
-                    menuText += "\n"
-                menuText += sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()
-                index += 1
+                menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()
             menuText += "</pre>"
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
@@ -590,7 +589,7 @@ class ABBot:
     def botSendUserDefinedBroadcastSTART(self, update: Update, context: CallbackContext):
         query = update.callback_query
         query.answer()
-        text = SYMBOLS.MEGAPHONE + "Gib den zu sendenden Text ein."
+        text = SYMBOLS.MEGAPHONE + "Gib den zu sendenden Text/Bild ein."
         text += "\nDieser wird ohne weitere Bestätigung an alle Bot User geschickt!"
         text += "\nZurück ins Hauptmenü mit /start!"
         self.botEditOrSendNewMessage(update, context, text)
@@ -598,13 +597,18 @@ class ABBot:
 
     def botSendUserDefinedBroadcast(self, update: Update, context: CallbackContext):
         recipients = self.getApprovedUsersExceptOne(update.effective_user.id)
-        answerToUser = SYMBOLS.CONFIRM + "Nachricht an alle " + str(len(recipients)) + " Bot Nutzer gesendet gesendet!"
-        answerToUser += "\nMit /start kommst du zurück in Hauptmenü."
+        answerToUser = SYMBOLS.CONFIRM + "Nachricht an alle " + str(len(recipients)) + " Bot Nutzer gesendet!"
+        answerToUser += "\nMit /start kommst du zurück ins Hauptmenü."
         self.sendMessage(chat_id=update.effective_message.chat_id, text=answerToUser)
         userMessage = update.message.text
-        text = "<b>Broadcast von " + self.getMeaningfulUserTitle(update.effective_user.id) + ":</b>"
-        text += "\n" + userMessage
-        self.sendMessageToMultipleUsers(recipients, text)
+        broadcastMsg = "<b>Broadcast von " + self.getMeaningfulUserTitle(update.effective_user.id) + ":</b>"
+        if update.message.photo:
+            if update.message.caption is not None:
+                broadcastMsg += "\n" + update.message.caption
+            self.sendPhotoToMultipleUsers(recipients, photo=update.message.photo[0].file_id, caption=broadcastMsg)
+        else:
+            broadcastMsg += "\n" + userMessage
+            self.sendMessageToMultipleUsers(recipients, broadcastMsg)
         userDoc = self.getUserDoc(update.effective_user.id)
         userDoc[USERDB.TIMESTAMP_LAST_BROADCAST_SENT] = datetime.now().timestamp()
         self.couchdb[DATABASES.USERS].save(userDoc)
@@ -666,7 +670,7 @@ class ABBot:
                 if len(totalAdminOnlyAlarmText) > 0:
                     totalAdminOnlyAlarmText += "\n"
                 totalAdminOnlyAlarmText += "Admin Alarme:"
-                totalAdminOnlyAlarmText += "\n" + adminAlarms
+                totalAdminOnlyAlarmText += adminAlarms
             userAlarms = self.alarmsystem.getAlarmText()
             if userAlarms is not None:
                 if len(totalUserAlarmText) > 0:
@@ -723,6 +727,11 @@ class ABBot:
         for userID in users:
             self.sendMessage(userID, text)
 
+    def sendPhotoToMultipleUsers(self, users: dict, photo, caption: str = None):
+        logging.info("Sending photo to " + str(len(users)) + " users...")
+        for userID in users:
+            self.sendPhoto(userID, photo=photo, caption=caption)
+
     def sendMessage(self, chat_id: Union[int, str], text: str, reply_markup=None) -> Union[None, Message]:
         try:
             return self.updater.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode='HTML')
@@ -735,6 +744,18 @@ class ABBot:
                 userDoc[USERDB.TIMESTAMP_LAST_BLOCKED_BOT_ERROR] = datetime.now().timestamp()
                 self.couchdb[DATABASES.USERS].save(userDoc)
             pass
+
+    def sendPhoto(self, chat_id: Union[int, str], photo, caption: str = None) -> Union[None, Message]:
+        try:
+            return self.updater.bot.sendPhoto(chat_id=chat_id, photo=photo, parse_mode='HTML', caption=caption)
+        except BadRequest:
+            pass
+        except Unauthorized:
+            # E.g. user has blocked bot -> Save that so we can remove such users on DB cleanup
+            userDoc = self.getUserDoc(chat_id)
+            if userDoc is not None:
+                userDoc[USERDB.TIMESTAMP_LAST_BLOCKED_BOT_ERROR] = datetime.now().timestamp()
+                self.couchdb[DATABASES.USERS].save(userDoc)
 
     def editMessage(self, chat_id: Union[int, str], message_id: int, text: str) -> Union[None, Message]:
         try:
