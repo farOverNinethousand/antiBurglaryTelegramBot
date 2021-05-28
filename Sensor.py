@@ -28,7 +28,7 @@ class Sensor:
         self.lastTimeTriggered = -1
         self.triggeredText = cfg.triggeredText
         self.unTriggeredText = cfg.unTriggeredText
-        self.isAdminOnlyAlarm = False
+        self.isAdminOnlyAlarm = cfg.adminOnly
 
     def getName(self):
         return self.name

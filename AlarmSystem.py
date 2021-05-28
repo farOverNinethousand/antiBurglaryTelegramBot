@@ -121,6 +121,7 @@ class AlarmSystem:
         if self.lastEntryID is None:
             # First run -> Make sure we don't return alarms immediately!
             self.lastEntryID = currentLastEntryID
+            # Obtain serverside last updated timestamp
             self.lastSensorUpdateServersideDatetime = datetime.strptime(sensorResults[len(sensorResults) - 1]["created_at"], '%Y-%m-%dT%H:%M:%S%z')
             allowSendSensorAlarms = False
         elif currentLastEntryID == self.lastEntryID:
@@ -131,6 +132,10 @@ class AlarmSystem:
             logging.info("Thingspeak channel has been reset(?) -> Checking ALL entryIDs")
         else:
             logging.info("Checking all entryIDs > " + str(self.lastEntryID))
+        # The following two lines == debug code
+        # allowSendSensorAlarms = True
+        # self.lastEntryID = 0
+
         alarmDatetime = None
         triggeredSensors = []
         alarmSensorsNames = []
@@ -157,8 +162,7 @@ class AlarmSystem:
                 # Check if alarm state is given
                 if sensor.isTriggered():
                     if sensor.isAlarmOnlyOnceUntilUntriggered() and sensorWasTriggeredBefore:
-                        # print("Ignore " + sensor.getName() + " because alarm is only allowed once until untriggered")
-                        logging.info("Ignore " + sensor.getName() + " because alarm is only allowed once when triggered until untriggered")
+                        # logging.info("Ignore " + sensor.getName() + " because alarm is only allowed once when triggered until untriggered")
                         continue
                     if sensor.getName() not in alarmSensorsNames:
                         alarmSensorsNames.append(sensor.getName())
@@ -204,4 +208,4 @@ class AlarmSystem:
             self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
         else:
             # No alarms
-            pass
+            logging.info("Detected no alarms this run")

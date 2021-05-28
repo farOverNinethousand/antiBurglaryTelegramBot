@@ -68,7 +68,7 @@ class BOTDB:
     MUTED_BY_USER_ID = 'muted_by'
 
 
-BOT_VERSION = "0.8.6"
+BOT_VERSION = "0.8.7"
 
 
 class ABBot:
@@ -249,8 +249,10 @@ class ABBot:
             # Treat this like a dummy sensor
             menuText += "<pre>"
             menuText += "\nNoDataStatus: " + self.alarmsystem.getNoDataStatus()
-            for sensor in list(self.alarmsystem.sensors.values()):
-                menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()
+            # Only show sensor data if current data is available!
+            if not self.alarmsystem.noDataAlarmHasBeenTriggered:
+                for sensor in list(self.alarmsystem.sensors.values()):
+                    menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()
             menuText += "</pre>"
             if self.userIsAdmin(update.effective_user.id):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
@@ -670,7 +672,7 @@ class ABBot:
                 if len(totalAdminOnlyAlarmText) > 0:
                     totalAdminOnlyAlarmText += "\n"
                 totalAdminOnlyAlarmText += "Admin Alarme:"
-                totalAdminOnlyAlarmText += adminAlarms
+                totalAdminOnlyAlarmText += "\n" + adminAlarms
             userAlarms = self.alarmsystem.getAlarmText()
             if userAlarms is not None:
                 if len(totalUserAlarmText) > 0:
@@ -683,7 +685,7 @@ class ABBot:
             self.sendMessageToAllAdmins(totalAdminOnlyAlarmText)
         if len(totalUserAlarmText) > 0:
             logging.warning("Sending out user alarms...")
-            self.sendMessageToAllApprovedUsers(totalAdminOnlyAlarmText)
+            self.sendMessageToAllApprovedUsers(totalUserAlarmText)
 
         # if not self.isGloballySnoozed():
         #     amdinOnlyAlarmText = self.alarmsystem.getAlarmTextAdminOnly()
