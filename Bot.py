@@ -68,7 +68,7 @@ class BOTDB:
     MUTED_BY_USER_ID = 'muted_by'
 
 
-BOT_VERSION = "0.8.7"
+BOT_VERSION = "0.8.8"
 
 
 class ABBot:
@@ -230,31 +230,36 @@ class ABBot:
             mainMenuKeyboard = []
             if self.getCurrentGlobalSnoozeTimestamp() > datetime.now().timestamp():
                 userWhoSnoozed = self.getCurrentGlobalSnoozeUserID()
-                menuText += '\n<b>' + SYMBOLS.WARNING + 'Benachrichtigungen deaktiviert bis: ' + formatTimestampToGermanDate(
+                menuText += '\nBot Alarme:<b>' + SYMBOLS.WARNING + 'deaktiviert bis: ' + formatTimestampToGermanDate(
                     self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')</b>'
                 menuText += '\nVon: ' + self.getMeaningfulUserTitleInContext(userWhoSnoozed, update.effective_user.id)
                 if str(userWhoSnoozed) == str(update.effective_user.id):
-                    menuText += "\n<b>Denk bitte dran, Bot Alarme und die Kamera beim Verlassen der Hütte wieder zu aktivieren!</b>"
+                    menuText += "\n<b>Vergiss bitte nicht, Bot Alarme und das Alarmsystem beim Verlassen der Hütte wieder zu aktivieren!</b>"
                 mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
-                menuText += '\nhier kannst du Aktivitäten-Benachrichtigungen (Alarme) abschalten.'
-                menuText += '\nAlle Bot User werden benachrichtigt wenn du einen der Snooze-Buttons drückst also lass\' bitte deinen Spieltrieb beiseite!'
+                menuText += "\nBot Alarme: "+ SYMBOLS.CONFIRM + " Aktiv"
+                menuText += '\nHier kannst du Aktivitäten-Benachrichtigungen (Alarme) abschalten.'
+                menuText += '\nAlle Bot User werden benachrichtigt wenn du einen der Snooze-Buttons drückst also lass' \
+                            ' bitte deinen Spieltrieb beiseite!'
                 mainMenuKeyboard.append([InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS + '1'),
                                          InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS + '12')])
                 mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS + '24'),
                                          InlineKeyboardButton('48 Stunden', callback_data=CallbackVars.MUTE_HOURS + '48')])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.MEGAPHONE + 'Broadcast', callback_data=CallbackVars.SEND_BROADCAST)])
             mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.WRENCH + 'Einstellungen', callback_data=CallbackVars.MENU_SETTINGS)])
-            menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime) + " (vor " + getFormattedDuration(datetime.now().timestamp() - self.alarmsystem.lastSensorUpdateServersideDatetime.timestamp()) + "):"
-            # Treat this like a dummy sensor
-            menuText += "<pre>"
-            menuText += "\nNoDataStatus: " + self.alarmsystem.getNoDataStatus()
+            # menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime) + " (vor " + getFormattedDuration(datetime.now().timestamp() - self.alarmsystem.lastSensorUpdateServersideDatetime.timestamp()) + "):"
             # Only show sensor data if current data is available!
-            if not self.alarmsystem.noDataAlarmHasBeenTriggered:
+            if self.alarmsystem.noDataAlarmHasBeenTriggered:
+                # Only show this info to admins as it may confuse users
+                if userDoc.get(USERDB.IS_ADMIN, False):
+                    menuText += "\n\nAlarmsystem Daten: " + SYMBOLS.DENY + "Letzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime)
+            else:
+                menuText += "\n\nAlarmsystem Daten: " + SYMBOLS.CONFIRM + "Aktuell"
+                menuText += "<pre>"
                 for sensor in list(self.alarmsystem.sensors.values()):
                     menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()
-            menuText += "</pre>"
-            if self.userIsAdmin(update.effective_user.id):
+                menuText += "</pre>"
+            if userDoc.get(USERDB.IS_ADMIN, False):
                 menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 menuText += '\nMissbrauche deine Macht nicht!'
                 mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.FLASH + 'ACP', callback_data=CallbackVars.MENU_ACP)])
@@ -309,7 +314,11 @@ class ABBot:
             menuText += "\nRegistriert am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_REGISTERED])
             menuText += "\nBestätigt am: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_APPROVED])
             menuText += "\nBestätigt von: " + self.getMeaningfulUserTitle(userDoc[USERDB.APPROVED_BY])
-            menuText += "\nLöschen = Benutzer muss sich erneut mit Passwort anmelden und bestätigt werden und kann den Bot ansonsten nicht mehr verwenden."
+            if USERDB.TIMESTAMP_LAST_SNOOZE in userDoc:
+                menuText += "\nZuletzt snoozed: " + formatTimestampToGermanDate(userDoc[USERDB.TIMESTAMP_LAST_SNOOZE])
+            else:
+                menuText += "\nZuletzt snoozed: Nie"
+            menuText += "\n" + SYMBOLS.DENY + "Löschen = Benutzer muss sich erneut mit Passwort anmelden und bestätigt werden und kann den Bot ansonsten nicht mehr verwenden."
         userOptions.append([InlineKeyboardButton(SYMBOLS.DENY + 'Löschen', callback_data=CallbackVars.MENU_ACP_ACTION_DELETE_USER + userIDStr)])
         userOptions.append([InlineKeyboardButton(SYMBOLS.BACK + 'Zurück', callback_data=CallbackVars.MENU_ACP)])
         self.botEditOrSendNewMessage(update, context, menuText,
@@ -603,7 +612,7 @@ class ABBot:
         answerToUser += "\nMit /start kommst du zurück ins Hauptmenü."
         self.sendMessage(chat_id=update.effective_message.chat_id, text=answerToUser)
         userMessage = update.message.text
-        broadcastMsg = "<b>Broadcast von " + self.getMeaningfulUserTitle(update.effective_user.id) + ":</b>"
+        broadcastMsg = SYMBOLS.MEGAPHONE + "<b>Broadcast von " + self.getMeaningfulUserTitle(update.effective_user.id) + ":</b>"
         if update.message.photo:
             if update.message.caption is not None:
                 broadcastMsg += "\n" + update.message.caption

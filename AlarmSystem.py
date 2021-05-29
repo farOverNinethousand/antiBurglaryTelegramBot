@@ -150,6 +150,11 @@ class AlarmSystem:
                 sensorWasTriggeredBefore = sensor.isTriggered()
                 # Thingspeak sends all values as String but we need float or int
                 fieldValueRaw = feed[fieldKey]
+                # Skip invalid fields e.g. containing value "nAn"
+                if not fieldValueRaw.replace('.', '', 1).isdigit():
+                    # https://stackoverflow.com/questions/354038/how-do-i-check-if-a-string-is-a-number-float
+                    continue
+                # String to number
                 if '.' in fieldValueRaw:
                     sensor.setValue(float(fieldValueRaw))
                 else:

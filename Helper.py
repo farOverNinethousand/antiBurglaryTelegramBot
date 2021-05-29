@@ -59,8 +59,8 @@ def getFormattedTimeDelta(futureTimestamp: float) -> str:
     """ Returns human readable duration until given future timestamp is reached """
     # https://stackoverflow.com/questions/538666/format-timedelta-to-string
     secondsRemaining = futureTimestamp - datetime.now().timestamp()
-    duration = datetime.utcfromtimestamp(secondsRemaining)
-    return getFormattedDuration(duration)
+    # duration = datetime.utcfromtimestamp(secondsRemaining)
+    return getFormattedDuration(secondsRemaining)
 
 
 def getFormattedDuration(duration: float) -> str:
