@@ -183,10 +183,9 @@ class AlarmSystem:
             logging.info(infoText)
             # Check if our alarm system maybe hasn't been responding for a long amount of time. Only send alarm for this once until data is back!
             if -1 < self.noDataAlarmIntervalSeconds < datetime.now().timestamp() - self.lastSensorUpdateServersideDatetime.timestamp():
-                lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
-                logging.warning("Got no new sensor data for a long time! Last data is from: " + lastSensorDataIsFromDate)
                 if not self.noDataAlarmHasBeenTriggered:
-                    self.alarmsAdminOnly.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + lastSensorDataIsFromDate + "</b>")
+                    logging.info("NoDataAlarm triggered!")
+                    self.alarmsAdminOnly.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime) + "</b>")
                     self.lastNoNewSensorDataAvailableAlarmSentTimestamp = datetime.now().timestamp()
                     self.noDataAlarmHasBeenTriggered = True
             else:
