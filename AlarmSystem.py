@@ -117,22 +117,20 @@ class AlarmSystem:
         # Most of all times we want to check only new entries but if e.g. the channel gets reset we need to check entries lower than our last saved number!
         checkOnlyHigherEntryIDs = True
         currentLastEntryID = channelInfo['last_entry_id']
-        allowSendSensorAlarms = True
         if self.lastEntryID is None:
             # First run -> Make sure we don't return alarms immediately!
             self.lastEntryID = currentLastEntryID
             # Obtain serverside last updated timestamp
             self.lastSensorUpdateServersideDatetime = datetime.strptime(sensorResults[len(sensorResults) - 1]["created_at"], '%Y-%m-%dT%H:%M:%S%z')
-            allowSendSensorAlarms = False
-        elif currentLastEntryID == self.lastEntryID:
-            allowSendSensorAlarms = False
+            # Set dummy value
+            self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
         elif currentLastEntryID < self.lastEntryID:
             # Rare case
             checkOnlyHigherEntryIDs = False
             logging.info("Thingspeak channel has been reset(?) -> Checking ALL entryIDs")
         else:
             logging.info("Checking all entryIDs > " + str(self.lastEntryID))
-        # The following two lines == debug code
+        # The following two lines are debug code
         # allowSendSensorAlarms = True
         # self.lastEntryID = 0
 
@@ -173,9 +171,10 @@ class AlarmSystem:
                         alarmSensorsNames.append(sensor.getName())
                         triggeredSensors.append(sensor)
                         alarmDatetime = thisDatetime
+        self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
 
-        if not allowSendSensorAlarms:
-            logging.info(" --> No new data available --> Last data is from: " + formatDatetimeToGermanDate(
+        if currentLastEntryID == self.lastEntryID:
+            logging.info(" --> No new data available this run --> Last data is from: " + formatDatetimeToGermanDate(
                 self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]")
             # Check if our alarm system maybe hasn't been responding for a long amount of time. Only send alarm for this once until data is back!
             if -1 < self.noDataAlarmIntervalSeconds < datetime.now().timestamp() - self.lastEntryIDChangeTimestamp:
@@ -210,7 +209,6 @@ class AlarmSystem:
                         self.alarmsSnoozeOverride.append(alarmText)
                 self.lastSensorAlarmSentTimestamp = datetime.now().timestamp()
             self.lastEntryID = currentLastEntryID
-            self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
         else:
             # No alarms
             logging.info("Detected no alarms this run")

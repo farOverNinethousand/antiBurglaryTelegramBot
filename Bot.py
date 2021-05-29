@@ -1,12 +1,12 @@
 import logging
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Union
 
 import couchdb
 import schedule
-from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message, InputMediaPhoto
+from telegram import Update, ReplyMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.error import BadRequest, Unauthorized
 from telegram.ext import Updater, ConversationHandler, CommandHandler, CallbackContext, CallbackQueryHandler, \
     MessageHandler, Filters
@@ -68,7 +68,7 @@ class BOTDB:
     MUTED_BY_USER_ID = 'muted_by'
 
 
-BOT_VERSION = "0.8.8"
+BOT_VERSION = "0.8.9"
 
 
 class ABBot:
@@ -689,8 +689,12 @@ class ABBot:
                 totalUserAlarmText += "User Alarme:"
                 totalUserAlarmText += "\n" + userAlarms
         # Send alarms if there are some
+        # TODO: Fix issue where when user + admin alarms are present, admins will get two separate messages
         if len(totalAdminOnlyAlarmText) > 0:
             logging.warning("Sending out admin alarms...")
+            # Admins of course also get the user alarms
+            if len(totalUserAlarmText) > 0:
+                totalAdminOnlyAlarmText += "\n" + totalUserAlarmText
             self.sendMessageToAllAdmins(totalAdminOnlyAlarmText)
         if len(totalUserAlarmText) > 0:
             logging.warning("Sending out user alarms...")

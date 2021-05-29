@@ -27,6 +27,8 @@ Admins sollten wissen was sie tun daher gibt es keine Anleitung für diesen Teil
 
 # TODOs
 * Irgendwas findet man immer :D
+* Bot soll alarm Bilder schicken können
+* Wenn User + Admin Alarm gleichzeitig kommen, bekommen Admins doppelte Benachrichtigungen
 
 # Installation
 1. ``git clone diesesProjekt``
