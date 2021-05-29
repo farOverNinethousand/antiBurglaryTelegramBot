@@ -171,7 +171,6 @@ class AlarmSystem:
                         alarmSensorsNames.append(sensor.getName())
                         triggeredSensors.append(sensor)
                         alarmDatetime = thisDatetime
-        self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
 
         if currentLastEntryID == self.lastEntryID:
             logging.info(" --> No new data available this run --> Last data is from: " + formatDatetimeToGermanDate(
@@ -209,6 +208,7 @@ class AlarmSystem:
                         self.alarmsSnoozeOverride.append(alarmText)
                 self.lastSensorAlarmSentTimestamp = datetime.now().timestamp()
             self.lastEntryID = currentLastEntryID
+            self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
         else:
             # No alarms
             logging.info("Detected no alarms this run")
