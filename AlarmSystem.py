@@ -5,7 +5,7 @@ from typing import Union
 
 from hyper import HTTP20Connection
 
-from Helper import Config, formatDatetimeToGermanDate, SYMBOLS
+from Helper import Config, formatDatetimeToGermanDate, SYMBOLS, getFormattedDuration
 from Sensor import Sensor, SensorConfig
 
 
@@ -173,8 +173,12 @@ class AlarmSystem:
                         alarmDatetime = thisDatetime
 
         if currentLastEntryID == self.lastEntryID:
-            logging.info(" --> No new data available this run --> Last data is from: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]")
+            durationNoNewData = datetime.now().timestamp() - self.lastSensorUpdateServersideDatetime.timestamp()
+            infoText = " --> No new data available this run --> Last data is from: " + formatDatetimeToGermanDate(
+                self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "] | Time without new data: " + getFormattedDuration(durationNoNewData)
+            if not self.noDataAlarmHasBeenTriggered:
+                infoText += " | Time until alarm: " + getFormattedDuration(self.noDataAlarmIntervalSeconds - durationNoNewData)
+            logging.info(infoText)
             # Check if our alarm system maybe hasn't been responding for a long amount of time. Only send alarm for this once until data is back!
             if -1 < self.noDataAlarmIntervalSeconds < datetime.now().timestamp() - self.lastEntryIDChangeTimestamp:
                 lastSensorDataIsFromDate = formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime)
