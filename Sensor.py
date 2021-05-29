@@ -10,8 +10,8 @@ class SensorConfig(BaseModel):
     triggerOperator: str
     alarmOnlyOnceUntilUntriggered: Optional[bool] = False
     overridesSnooze: Optional[bool] = False
-    triggeredText: Optional[str] = None
-    unTriggeredText: Optional[str] = None
+    triggeredText: str
+    unTriggeredText: str
     adminOnly: Optional[bool] = False
 
 
