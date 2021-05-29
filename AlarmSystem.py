@@ -177,7 +177,7 @@ class AlarmSystem:
             infoText = " --> No new data available this run --> Last data is from: " + formatDatetimeToGermanDate(
                 self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "] | Time without new data: " + getFormattedDuration(durationNoNewData)
             if self.noDataAlarmHasBeenTriggered:
-                infoText += "NoDataAlarm has already been triggered"
+                infoText += " | NoDataAlarm has already been triggered"
             else:
                 infoText += " | Time until alarm: " + getFormattedDuration(self.noDataAlarmIntervalSeconds - durationNoNewData)
             logging.info(infoText)
