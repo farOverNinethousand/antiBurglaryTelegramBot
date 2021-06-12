@@ -68,7 +68,7 @@ class BOTDB:
     MUTED_BY_USER_ID = 'muted_by'
 
 
-BOT_VERSION = "0.8.9"
+BOT_VERSION = "0.9.0"
 
 
 class ABBot:
@@ -230,17 +230,19 @@ class ABBot:
             mainMenuKeyboard = []
             if self.getCurrentGlobalSnoozeTimestamp() > datetime.now().timestamp():
                 userWhoSnoozed = self.getCurrentGlobalSnoozeUserID()
-                menuText += '\nBot Alarme:<b>' + SYMBOLS.WARNING + 'deaktiviert bis: ' + formatTimestampToGermanDate(
+                menuText += '\n<Bot Alarme:' + SYMBOLS.WARNING
+                menuText += '\n<b>Deaktiviert bis: ' + formatTimestampToGermanDate(
                     self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')</b>'
                 menuText += '\nVon: ' + self.getMeaningfulUserTitleInContext(userWhoSnoozed, update.effective_user.id)
                 if str(userWhoSnoozed) == str(update.effective_user.id):
+                    # Remind user who disarmed alarm system to arm it again ;)
                     menuText += "\n<b>Vergiss bitte nicht, Bot Alarme und das Alarmsystem beim Verlassen der Hütte wieder zu aktivieren!</b>"
                 mainMenuKeyboard.append([InlineKeyboardButton('Benachrichtigungen für alle aktivieren', callback_data=CallbackVars.UNMUTE)])
             else:
-                menuText += "\nBot Alarme: "+ SYMBOLS.CONFIRM + " Aktiv"
-                menuText += '\nHier kannst du Aktivitäten-Benachrichtigungen (Alarme) abschalten.'
-                menuText += '\nAlle Bot User werden benachrichtigt wenn du einen der Snooze-Buttons drückst also lass' \
-                            ' bitte deinen Spieltrieb beiseite!'
+                menuText += "\nBot Alarme: " + SYMBOLS.CONFIRM
+                # menuText += '\nHier kannst du Aktivitäten-Benachrichtigungen (Alarme) abschalten.'
+                # menuText += '\nAlle Bot User werden benachrichtigt wenn du einen der Snooze-Buttons drückst also lass' \
+                #             ' bitte deinen Spieltrieb beiseite!'
                 mainMenuKeyboard.append([InlineKeyboardButton('1 Stunde', callback_data=CallbackVars.MUTE_HOURS + '1'),
                                          InlineKeyboardButton('12 Stunden', callback_data=CallbackVars.MUTE_HOURS + '12')])
                 mainMenuKeyboard.append([InlineKeyboardButton('24 Stunden', callback_data=CallbackVars.MUTE_HOURS + '24'),
@@ -252,7 +254,9 @@ class ABBot:
             if self.alarmsystem.noDataAlarmHasBeenTriggered:
                 # Only show this info to admins as it may confuse users
                 if userDoc.get(USERDB.IS_ADMIN, False):
-                    menuText += "\n\nAlarmsystem Daten: " + SYMBOLS.DENY + "Letzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime)
+                    menuText += "\nAlarmsystem Daten: " + SYMBOLS.WARNING
+                    menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime)
+                    menuText += "\n--> Die Alarmanlage ist entweder deaktiviert oder leer."
             else:
                 menuText += "\n\nAlarmsystem Daten: " + SYMBOLS.CONFIRM + "Aktuell"
                 menuText += "<pre>"
@@ -260,8 +264,7 @@ class ABBot:
                     menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()
                 menuText += "</pre>"
             if userDoc.get(USERDB.IS_ADMIN, False):
-                menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
-                menuText += '\nMissbrauche deine Macht nicht!'
+                # menuText += '\n' + SYMBOLS.CONFIRM + '<b>Du bist Admin!</b>'
                 mainMenuKeyboard.append([InlineKeyboardButton(SYMBOLS.FLASH + 'ACP', callback_data=CallbackVars.MENU_ACP)])
             menuText += "\n\n<i>antiBurglaryTelegramBot " + BOT_VERSION + " made with " + SYMBOLS.HEART + " and " + SYMBOLS.BEERS + " for Epi (2021)</i>"
             self.botEditOrSendNewMessage(update, context, menuText,
