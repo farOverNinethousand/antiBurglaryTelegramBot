@@ -230,7 +230,7 @@ class ABBot:
             mainMenuKeyboard = []
             if self.getCurrentGlobalSnoozeTimestamp() > datetime.now().timestamp():
                 userWhoSnoozed = self.getCurrentGlobalSnoozeUserID()
-                menuText += '\n<Bot Alarme:' + SYMBOLS.WARNING
+                menuText += '\nBot Alarme:' + SYMBOLS.WARNING
                 menuText += '\n<b>Deaktiviert bis: ' + formatTimestampToGermanDate(
                     self.getCurrentGlobalSnoozeTimestamp()) + ' (noch ' + getFormattedTimeDelta(self.getCurrentGlobalSnoozeTimestamp()) + ')</b>'
                 menuText += '\nVon: ' + self.getMeaningfulUserTitleInContext(userWhoSnoozed, update.effective_user.id)

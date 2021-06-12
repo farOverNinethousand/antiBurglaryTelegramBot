@@ -175,25 +175,21 @@ class AlarmSystem:
         if currentLastEntryID == self.lastEntryID:
             # Check if our alarm system maybe hasn't been responding for a long amount of time. Only send alarm for this once until data is back!
             durationNoNewData = datetime.now().timestamp() - self.lastSensorUpdateServersideDatetime.timestamp()
-            logging.info(" --> No new data available this run --> Last data is from: " + formatDatetimeToGermanDate(
-                self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "] | Time without new data: " + getFormattedDuration(durationNoNewData))
+            infoText = "No new data available this run | Last data is from: " + formatDatetimeToGermanDate(
+                self.lastSensorUpdateServersideDatetime) + " -> FieldID [" + str(self.lastEntryID) + "]"
             if self.noDataAlarmIntervalSeconds > -1:
                 # Only check for NoNewData alarms if wished
-                # if self.noDataAlarmHasBeenTriggered:
-                #     infoText += " | NoDataAlarm has already been triggered"
-                # else:
-                #     infoText += " | Time until alarm: " + getFormattedDuration(self.noDataAlarmIntervalSeconds - durationNoNewData)
-                # logging.info(infoText)
                 if durationNoNewData > self.noDataAlarmIntervalSeconds:
                     if not self.noDataAlarmHasBeenTriggered:
                         logging.info("NoDataAlarm triggered!")
                         self.alarmsAdminOnly.append(SYMBOLS.DENY + "<b>Fehler Alarmanlage!Keine neuen Daten verfügbar!\nLetzte Sensordaten vom: " + formatDatetimeToGermanDate(self.lastSensorUpdateServersideDatetime) + "</b>")
                         self.lastNoNewSensorDataAvailableAlarmSentTimestamp = datetime.now().timestamp()
                         self.noDataAlarmHasBeenTriggered = True
-                    logging.info("NoDataAlarm is active because no new data since: " + getFormattedDuration(durationNoNewData))
+                    infoText += "\n--> NoDataAlarm is active because no new data since: " + getFormattedDuration(durationNoNewData)
                 else:
                     self.noDataAlarmHasBeenTriggered = False
-                    logging.info("Time until alarm: " + getFormattedDuration(self.noDataAlarmIntervalSeconds - durationNoNewData))
+                    infoText += "\n--> Time until alarm: " + getFormattedDuration(self.noDataAlarmIntervalSeconds - durationNoNewData)
+                logging.info(infoText)
         elif len(alarmSensorsNames) > 0:
             print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
             if datetime.now().timestamp() < (self.lastSensorAlarmSentTimestamp + self.sensorAlarmIntervalSeconds):
