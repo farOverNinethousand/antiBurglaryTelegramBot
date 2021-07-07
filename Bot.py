@@ -68,7 +68,7 @@ class BOTDB:
     MUTED_BY_USER_ID = 'muted_by'
 
 
-BOT_VERSION = "0.9.0"
+BOT_VERSION = "0.9.1"
 
 
 class ABBot:
@@ -252,13 +252,11 @@ class ABBot:
             # menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime) + " (vor " + getFormattedDuration(datetime.now().timestamp() - self.alarmsystem.lastSensorUpdateServersideDatetime.timestamp()) + "):"
             # Only show sensor data if current data is available!
             if self.alarmsystem.noDataAlarmHasBeenTriggered:
-                # Only show this info to admins as it may confuse users
-                if userDoc.get(USERDB.IS_ADMIN, False):
-                    menuText += "\nAlarmsystem Daten: " + SYMBOLS.WARNING
-                    menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime)
-                    menuText += "\n--> Die Alarmanlage ist entweder deaktiviert oder leer."
+                menuText += "\nAlarmsystem Sensordaten: " + SYMBOLS.WARNING + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime)
+                # menuText += "\nLetzte Sensordaten vom " + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime)
+                menuText += "\n--> Die Alarmanlage ist entweder deaktiviert oder leer!"
             else:
-                menuText += "\n\nAlarmsystem Daten: " + SYMBOLS.CONFIRM + "Aktuell"
+                menuText += "\n\nAlarmsystem Sensordaten: " + SYMBOLS.CONFIRM + formatDatetimeToGermanDate(self.alarmsystem.lastSensorUpdateServersideDatetime)
                 menuText += "<pre>"
                 for sensor in list(self.alarmsystem.sensors.values()):
                     menuText += "\n" + sensor.getName() + ": " + str(sensor.getValue()) + " | " + sensor.getStatusText()

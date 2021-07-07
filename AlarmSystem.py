@@ -212,8 +212,8 @@ class AlarmSystem:
                     if triggeredSensor.overridesSnooze:
                         self.alarmsSnoozeOverride.append(alarmText)
                 self.lastSensorAlarmSentTimestamp = datetime.now().timestamp()
-            self.lastEntryID = currentLastEntryID
-            self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
         else:
             # No alarms
             logging.info("Detected no alarms this run")
+        self.lastEntryID = currentLastEntryID
+        self.lastEntryIDChangeTimestamp = datetime.now().timestamp()
