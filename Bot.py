@@ -701,25 +701,6 @@ class ABBot:
             logging.warning("Sending out user alarms...")
             self.sendMessageToAllApprovedUsers(totalUserAlarmText)
 
-        # if not self.isGloballySnoozed():
-        #     amdinOnlyAlarmText = self.alarmsystem.getAlarmTextAdminOnly()
-        #     if amdinOnlyAlarmText is not None:
-        #         logging.warning("Sending out admin alarms...")
-        #         totalAdminOnlyAlarmText = "Admin Alarme"
-        #         totalAdminOnlyAlarmText += "\n" + amdinOnlyAlarmText
-        #         self.sendMessageToAllAdmins(amdinOnlyAlarmText)
-        #     else:
-        #         text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
-        #         for alarmMsg in self.alarmsystem.alarms:
-        #             text += "\n" + alarmMsg
-        #         self.sendMessageToAllApprovedUsers(text)
-        # elif len(self.alarmsystem.alarmsSnoozeOverride) > 0:
-        #     # Some alarms should be sent even in snoozed mode
-        #     text = "<b>Alarm! " + self.alarmsystem.channelName + "</b>"
-        #     for alarmMsg in self.alarmsystem.alarmsSnoozeOverride:
-        #         text += "\n" + alarmMsg
-        #     self.sendMessageToAllApprovedUsers(text)
-
     def getCurrentGlobalSnoozeTimestamp(self) -> float:
         return self.getBotDoc().get(BOTDB.TIMESTAMP_SNOOZE_UNTIL, 0)
 
@@ -938,6 +919,9 @@ if __name__ == '__main__':
     bot = ABBot()
     bot.updater.start_polling()
     schedule.every(5).seconds.do(bot.handleBatchProcess)
+    counter = 0
     while True:
+        counter += 1
         schedule.run_pending()
         time.sleep(1)
+        logging.info("Looprun: " + str(counter))

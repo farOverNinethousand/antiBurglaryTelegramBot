@@ -188,7 +188,7 @@ class AlarmSystem:
                     infoText += "\n--> NoDataAlarm is active because no new data since: " + getFormattedDuration(durationNoNewData)
                 else:
                     self.noDataAlarmHasBeenTriggered = False
-                    infoText += "\n--> Time until alarm: " + getFormattedDuration(self.noDataAlarmIntervalSeconds - durationNoNewData)
+                    infoText += "\n--> Time until no data alarm: " + getFormattedDuration(self.noDataAlarmIntervalSeconds - durationNoNewData)
                 logging.info(infoText)
         elif len(alarmSensorsNames) > 0:
             print("Alarms triggered: " + formatDatetimeToGermanDate(alarmDatetime) + " | " + ', '.join(alarmSensorsNames))
