@@ -884,15 +884,6 @@ class ABBot:
         self.denyUser(userIDStr, update.effective_user.id)
         return self.botAcpDisplayUserList(update, context)
 
-    # def getApprovedUnmutedUsers(self) -> dict:
-    #     """ Returns approved users AND admins """
-    #     users = {}
-    #     userDB = self.couchdb[DATABASES.USERS]
-    #     for userID in userDB:
-    #         userDoc = userDB[userID]
-    #         if userDoc.get(USERDB.IS_ADMIN) or userDoc.get(USERDB.IS_APPROVED, False) and userDoc.get(USERDB.TIMESTAMP_SNOOZE_UNTIL, datetime.now().timestamp()) <= datetime.now().timestamp():
-    #             users[userID] = userDoc
-    #     return users
 
     def getUserDoc(self, userID: Union[int, str]):
         return self.couchdb[DATABASES.USERS].get(str(userID))
